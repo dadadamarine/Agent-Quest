@@ -4,11 +4,12 @@ import type { ParsedEvent } from '../parsers/session-parser';
 
 const EDIT_TOOLS = new Set(['Edit', 'Write', 'NotebookEdit']);
 
-// Bounded recent-history caps for AgentState. Provider can replay months of
-// JSONL on startup, so a single agent's `toolCalls` and `filesModified` would
-// grow unbounded and inflate the snapshot payload — the browser then drops the
-// WebSocket on connect (see issue #7). The cap keeps each agent's history to
-// the most recent N items (FIFO — oldest dropped first).
+// AgentState retention policy: each agent exposes a bounded "recent history"
+// of tool calls and modified files to the UI. The Party Bar, Detail Panel,
+// and village scene only need the most recent activity — older entries are
+// dropped FIFO. Transport-level concerns (payload byte budget, broadcast
+// frame size) live in `WebSocketServer`; this cap is the state manager's own
+// input policy and does not depend on which transport happens to ship it.
 const MAX_TOOL_CALLS_PER_AGENT = 50;
 const MAX_FILES_MODIFIED_PER_AGENT = 50;
 
