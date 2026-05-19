@@ -49,6 +49,17 @@ export interface SessionLivenessOracle {
   isLive(sessionId: string): boolean;
 }
 
+/**
+ * Display-name oracle: returns the user-set session title (the same string the
+ * `claude agents` view shows in its left column). Sourced from
+ * `<configDir>/jobs/<jobId>/state.json` per `~/.claude/rules/session-display-name.md`.
+ * Returns undefined when the session has no jobId, no state file, or no name —
+ * callers fall back to slug/cwd-basename derivation.
+ */
+export interface SessionDisplayNameOracle {
+  getDisplayName(sessionId: string): string | undefined;
+}
+
 export interface AgentStateManagerOptions {
   /** Age above which an agent transitions from active → idle (ms). Default 5 min. */
   idleThresholdMs?: number;
@@ -72,6 +83,8 @@ export interface AgentStateManagerOptions {
   subagentBusyCompletedThresholdMs?: number;
   /** Optional oracle for cross-referencing sessions against live Claude pids. */
   livenessOracle?: SessionLivenessOracle;
+  /** Optional oracle for surfacing the user-set session display name as the agent label. */
+  displayNameOracle?: SessionDisplayNameOracle;
 }
 
 function isSubagentSessionId(sessionId: string): boolean {
@@ -89,6 +102,7 @@ export class AgentStateManager {
   private subagentCompletedThresholdMs: number;
   private subagentBusyCompletedThresholdMs: number;
   private livenessOracle: SessionLivenessOracle | undefined;
+  private displayNameOracle: SessionDisplayNameOracle | undefined;
 
   constructor(opts: AgentStateManagerOptions = {}) {
     this.idleThresholdMs = opts.idleThresholdMs ?? 5 * 60_000;
@@ -98,10 +112,15 @@ export class AgentStateManager {
     this.subagentCompletedThresholdMs = opts.subagentCompletedThresholdMs ?? 5 * 60_000;
     this.subagentBusyCompletedThresholdMs = opts.subagentBusyCompletedThresholdMs ?? 15 * 60_000;
     this.livenessOracle = opts.livenessOracle;
+    this.displayNameOracle = opts.displayNameOracle;
   }
 
   setLivenessOracle(oracle: SessionLivenessOracle | undefined): void {
     this.livenessOracle = oracle;
+  }
+
+  setDisplayNameOracle(oracle: SessionDisplayNameOracle | undefined): void {
+    this.displayNameOracle = oracle;
   }
 
   processEvent(
@@ -129,6 +148,7 @@ export class AgentStateManager {
       this.applyTurnAndError(agent, event);
       // Liveness wins over turn-end: a dead pid can't be mid-turn.
       this.applyLivenessOverride(agent);
+      this.applyDisplayName(agent);
       return { agent, isNew: true };
     }
 
@@ -141,6 +161,7 @@ export class AgentStateManager {
       this.applyTurnAndError(existing, event);
       this.applyLivenessOverride(existing);
     }
+    this.applyDisplayName(existing);
     return { agent: existing, isNew: false };
   }
 
@@ -150,12 +171,32 @@ export class AgentStateManager {
     for (const agent of this.agents.values()) {
       const before = agent.status;
       const beforeActivity = agent.currentActivity;
+      const beforeName = agent.name;
       this.applyDerivedStatus(agent);
-      if (agent.status !== before || agent.currentActivity !== beforeActivity) {
+      this.applyDisplayName(agent);
+      if (
+        agent.status !== before ||
+        agent.currentActivity !== beforeActivity ||
+        agent.name !== beforeName
+      ) {
         changed.push(agent.id);
       }
     }
     return changed;
+  }
+
+  /**
+   * Overwrite `agent.name` with the user-set display name when the oracle
+   * exposes one. Subagents are skipped — they have no jobId of their own and
+   * are intentionally labelled from the filename descriptor.
+   */
+  private applyDisplayName(agent: AgentState): void {
+    if (this.displayNameOracle === undefined) return;
+    if (isSubagentSessionId(agent.id)) return;
+    const name = this.displayNameOracle.getDisplayName(agent.id);
+    if (name !== undefined && name.length > 0) {
+      agent.name = name;
+    }
   }
 
   /**
