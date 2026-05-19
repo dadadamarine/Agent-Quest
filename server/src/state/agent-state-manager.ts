@@ -4,6 +4,23 @@ import type { ParsedEvent } from '../parsers/session-parser';
 
 const EDIT_TOOLS = new Set(['Edit', 'Write', 'NotebookEdit']);
 
+// Bounded recent-history caps for AgentState. Provider can replay months of
+// JSONL on startup, so a single agent's `toolCalls` and `filesModified` would
+// grow unbounded and inflate the snapshot payload — the browser then drops the
+// WebSocket on connect (see issue #7). The cap keeps each agent's history to
+// the most recent N items (FIFO — oldest dropped first).
+const MAX_TOOL_CALLS_PER_AGENT = 50;
+const MAX_FILES_MODIFIED_PER_AGENT = 50;
+
+function trimAgentHistory(agent: AgentState): void {
+  if (agent.toolCalls.length > MAX_TOOL_CALLS_PER_AGENT) {
+    agent.toolCalls.splice(0, agent.toolCalls.length - MAX_TOOL_CALLS_PER_AGENT);
+  }
+  if (agent.filesModified.length > MAX_FILES_MODIFIED_PER_AGENT) {
+    agent.filesModified.splice(0, agent.filesModified.length - MAX_FILES_MODIFIED_PER_AGENT);
+  }
+}
+
 function cwdBasename(cwd: string): string {
   const parts = cwd.split('/').filter((p) => p.length > 0);
   return parts[parts.length - 1] ?? cwd;
@@ -143,6 +160,7 @@ export class AgentStateManager {
 
     if (existing === undefined) {
       const agent = this.createAgent(event, configDir, source, nameOverride, subagentCtx);
+      trimAgentHistory(agent);
       this.agents.set(event.sessionId, agent);
       this.applyDerivedStatus(agent);
       this.applyTurnAndError(agent, event);
@@ -525,6 +543,7 @@ export class AgentStateManager {
         agent.filesModified.push(f);
       }
     }
+    trimAgentHistory(agent);
   }
 
   private extractModifiedFiles(event: ParsedEvent): string[] {

@@ -88,15 +88,24 @@ export function useAgentState(): AgentStateHook {
       }
     };
 
-    ws.onclose = () => {
+    ws.onclose = (event) => {
       setConnected(false);
       eventBridge.emit('ws:disconnected');
-      console.log('[WS] disconnected, reconnecting in', RECONNECT_DELAY_MS, 'ms');
+      // code/reason help diagnose why the server (or browser) dropped the
+      // connection — 1009 = message too big, 1006 = abnormal closure, 1000 =
+      // normal. wasClean=false signals an unclean teardown (issue #7 hunt).
+      console.log(
+        `[WS] disconnected code=${event.code} reason="${event.reason}" wasClean=${event.wasClean} — reconnecting in`,
+        RECONNECT_DELAY_MS,
+        'ms',
+      );
       reconnectTimer.current = setTimeout(connect, RECONNECT_DELAY_MS);
     };
 
     ws.onerror = (err) => {
-      console.error('[WS] error:', err);
+      // Browsers do not expose error details for security; only the event type
+      // is meaningful. Pair this with the onclose code/reason for diagnosis.
+      console.error(`[WS] error type=${err.type}`);
       ws.close();
     };
   }, [handleEvent]);
