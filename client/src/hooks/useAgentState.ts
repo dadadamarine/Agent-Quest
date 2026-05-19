@@ -100,6 +100,17 @@ export function useAgentState(): AgentStateHook {
       // code/reason help diagnose why the server (or browser) dropped the
       // connection — 1009 = message too big, 1006 = abnormal closure, 1000 =
       // normal. wasClean=false signals an unclean teardown (issue #7 hunt).
+      // Stale-ws guard: identity check against wsRef.current is more precise
+      // than the shouldReconnect ref alone. In a StrictMode mount→unmount→
+      // mount cycle, mount B re-flips shouldReconnect back to true before
+      // ws_A's onclose fires asynchronously — without this guard, the stale
+      // ws_A's onclose would drive a reconnect on mount B's hook (issue #9).
+      if (wsRef.current !== ws) {
+        console.log(
+          `[WS] closed (stale ws) code=${event.code} reason="${event.reason}" wasClean=${event.wasClean} — skipping reconnect`,
+        );
+        return;
+      }
       if (!shouldReconnect.current) {
         console.log(
           `[WS] closed by cleanup code=${event.code} reason="${event.reason}" wasClean=${event.wasClean}`,
