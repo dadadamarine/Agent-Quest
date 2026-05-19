@@ -1,7 +1,7 @@
 import { editorBridge } from '../EditorBridge';
 import { editorStore, useEditorStore } from '../state/editor-store';
 import type { SlotInfo } from '../types/map';
-import { truncateLabel } from '../../game/entities/truncateLabel';
+import { truncateLabel } from '../../utils/truncateLabel';
 
 export function EditorTopBar() {
   const dirty = useEditorStore((s) => s.dirty);

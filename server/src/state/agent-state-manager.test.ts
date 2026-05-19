@@ -811,6 +811,41 @@ describe('AgentStateManager', () => {
     expect(result!.agent.name).toBe('helper');
   });
 
+  test('falls back to the derived name when the oracle drops the display name', () => {
+    const displayNames = new Map<string, string>([['sess-1', '[#42, 7/13] feat: foo']]);
+    const m = new AgentStateManager({
+      displayNameOracle: { getDisplayName: (sid) => displayNames.get(sid) },
+    });
+
+    // Oracle has a title — agent should pick it up.
+    m.processEvent(makeEvent());
+    expect(m.getAgent('sess-1')!.name).toBe('[#42, 7/13] feat: foo');
+
+    // User removes the state.json (the registry's next scan would drop the entry).
+    // Without the fallback path, agent.name would freeze on the stale title and
+    // refreshAll() wouldn't even mark the session as changed.
+    displayNames.delete('sess-1');
+    const changed = m.refreshAll();
+
+    expect(changed).toContain('sess-1');
+    expect(m.getAgent('sess-1')!.name).toBe('bubbly-waddling-cat');
+  });
+
+  test('falls back to the derived name on the next processEvent after oracle drops the title', () => {
+    const displayNames = new Map<string, string>([['sess-1', '[#42, 7/13] feat: foo']]);
+    const m = new AgentStateManager({
+      displayNameOracle: { getDisplayName: (sid) => displayNames.get(sid) },
+    });
+
+    m.processEvent(makeEvent());
+    expect(m.getAgent('sess-1')!.name).toBe('[#42, 7/13] feat: foo');
+
+    displayNames.delete('sess-1');
+    const next = m.processEvent(makeEvent({ timestamp: Date.now() + 1 }));
+
+    expect(next!.agent.name).toBe('bubbly-waddling-cat');
+  });
+
   test('setDisplayNameOracle wires the oracle after construction', () => {
     const m = new AgentStateManager();
     m.processEvent(makeEvent());

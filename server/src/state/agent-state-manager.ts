@@ -50,11 +50,10 @@ export interface SessionLivenessOracle {
 }
 
 /**
- * Display-name oracle: returns the user-set session title (the same string the
- * `claude agents` view shows in its left column). Sourced from
- * `<configDir>/jobs/<jobId>/state.json` per `~/.claude/rules/session-display-name.md`.
- * Returns undefined when the session has no jobId, no state file, or no name —
- * callers fall back to slug/cwd-basename derivation.
+ * Display-name oracle: returns an optional human-readable label for a session.
+ * Returns undefined when no label is available — callers fall back to the
+ * slug/cwd-basename derivation. The concrete storage (file paths, formats) is
+ * the adapter's concern, not part of this contract.
  */
 export interface SessionDisplayNameOracle {
   getDisplayName(sessionId: string): string | undefined;
@@ -186,17 +185,18 @@ export class AgentStateManager {
   }
 
   /**
-   * Overwrite `agent.name` with the user-set display name when the oracle
-   * exposes one. Subagents are skipped — they have no jobId of their own and
-   * are intentionally labelled from the filename descriptor.
+   * Reconcile `agent.name` against the oracle on every tick. Returning to the
+   * derived (slug/cwd) name is just as important as overlaying the oracle's
+   * label — without the fallback path, a removed/corrupt `state.json` would
+   * leave the previous title frozen on the sprite. Subagents are skipped
+   * (they have no jobId of their own and keep the filename descriptor).
    */
   private applyDisplayName(agent: AgentState): void {
-    if (this.displayNameOracle === undefined) return;
     if (isSubagentSessionId(agent.id)) return;
-    const name = this.displayNameOracle.getDisplayName(agent.id);
-    if (name !== undefined && name.length > 0) {
-      agent.name = name;
-    }
+    const oracleName = this.displayNameOracle?.getDisplayName(agent.id);
+    agent.name = oracleName !== undefined && oracleName.length > 0
+      ? oracleName
+      : agent.derivedName;
   }
 
   /**
@@ -460,14 +460,15 @@ export class AgentStateManager {
     source: AgentSource,
     nameOverride?: string,
   ): AgentState {
-    const name = nameOverride !== undefined && nameOverride.length > 0
+    const derivedName = nameOverride !== undefined && nameOverride.length > 0
       ? nameOverride
       : deriveAgentName(event.slug, event.cwd, event.sessionId);
     const agent: AgentState = {
       id: event.sessionId,
-      name,
+      name: derivedName,
+      derivedName,
       heroClass: this.nextHeroClass(),
-      heroColor: this.pickUnusedColorFor(name),
+      heroColor: this.pickUnusedColorFor(derivedName),
       status: 'active',
       currentActivity: event.activity,
       currentFile: event.file,
@@ -504,12 +505,14 @@ export class AgentStateManager {
     }
 
     // Subagents keep their filename-derived name — the event's slug is the
-    // parent session's slug (copied verbatim) and would be misleading.
+    // parent session's slug (copied verbatim) and would be misleading. Updates
+    // land on `derivedName` so `applyDisplayName()` can swap back when the
+    // oracle drops the user-set title.
     if (!isSubagentId(agent.id)) {
       if (event.slug !== undefined) {
-        agent.name = event.slug;
-      } else if (looksLikeSessionPrefix(agent.name) && event.cwd !== undefined) {
-        agent.name = cwdBasename(event.cwd);
+        agent.derivedName = event.slug;
+      } else if (looksLikeSessionPrefix(agent.derivedName) && event.cwd !== undefined) {
+        agent.derivedName = cwdBasename(event.cwd);
       }
     }
 
