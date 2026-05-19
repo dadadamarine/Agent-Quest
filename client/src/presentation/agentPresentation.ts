@@ -9,20 +9,27 @@ import type { AgentState } from '../types/agent';
  * This function is the single authoritative gate for which statuses reach
  * those surfaces:
  *
- *   - `active`, `idle`  — always pass through
- *   - `completed`       — pass through only when `showCompleted` is true
- *   - `error`, `waiting`— always blocked here (no other layer re-introduces them)
+ *   - `active`, `idle`, `waiting` — always pass through. `waiting` is a
+ *     short-lived "turn just ended, hero is resting at the tavern" state;
+ *     HeroSprite has dedicated pulse/label rendering for it, so it must
+ *     reach the Phaser scene. computeShowSourceBadge treats waiting as
+ *     live too — keep the two functions in agreement.
+ *   - `completed` — pass through only when `showCompleted` is true.
+ *   - `error` — always blocked here. The scene additionally drops `error`
+ *     defensively, and there is currently no Party Bar surfacing for it.
  *
  * Downstream consumers may apply additional local hiding (e.g. the Phaser
  * scene drops heroes whose last event is older than its idle threshold),
- * but they MUST NOT re-introduce a status this function blocked.
+ * but they MUST NOT re-introduce `error` once it has been filtered out.
  */
 export function filterAgentsForPresentation(
   agents: AgentState[],
   showCompleted: boolean,
 ): AgentState[] {
   return agents.filter((agent) => {
-    if (agent.status === 'active' || agent.status === 'idle') return true;
+    if (agent.status === 'active' || agent.status === 'idle' || agent.status === 'waiting') {
+      return true;
+    }
     if (agent.status === 'completed' && showCompleted) return true;
     return false;
   });

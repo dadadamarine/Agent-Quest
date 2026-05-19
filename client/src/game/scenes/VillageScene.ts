@@ -12,7 +12,7 @@ import type { AgentState } from '../../types/agent';
 import type { AssetManifest, MapConfig, BuildingPosition, NpcPlacement } from '../../editor/types/map';
 import { SERVER_URL as API_BASE } from '../../config';
 import { getActiveTheme, rebaseSavedScale } from '../themes/registry';
-import { computeShowSourceBadge } from '../../hooks/agentPresentation';
+import { computeShowSourceBadge } from '../../presentation/agentPresentation';
 
 /** Set `cam.zoom` to `newZoom` while keeping the world point currently
  * under screen coordinates (sx, sy) pinned to the same screen spot.

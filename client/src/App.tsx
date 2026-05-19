@@ -3,7 +3,7 @@ import { PhaserGame } from './game/PhaserGame';
 import { useAgentState } from './hooks/useAgentState';
 import { useSelectedAgent } from './hooks/useSelectedAgent';
 import { useTopBarPrefs } from './hooks/useTopBarPrefs';
-import { computeShowSourceBadge, filterAgentsForPresentation } from './hooks/agentPresentation';
+import { computeShowSourceBadge, filterAgentsForPresentation } from './presentation/agentPresentation';
 import { eventBridge } from './game/EventBridge';
 import { TopBar } from './components/TopBar';
 import { PartyBar } from './components/PartyBar';

@@ -25,36 +25,42 @@ function makeAgent(overrides: Partial<AgentState>): AgentState {
 }
 
 describe('filterAgentsForPresentation', () => {
-  it('default OFF: active and idle pass; completed, error, waiting are hidden', () => {
+  it('default OFF: active, idle, and waiting pass; completed and error are hidden', () => {
     const agents: AgentState[] = [
       makeAgent({ id: 'active1', status: 'active' }),
       makeAgent({ id: 'idle1', status: 'idle' }),
+      makeAgent({ id: 'wait1', status: 'waiting' }),
       makeAgent({ id: 'done1', status: 'completed' }),
       makeAgent({ id: 'err1', status: 'error' }),
-      makeAgent({ id: 'wait1', status: 'waiting' }),
     ];
     const visible = filterAgentsForPresentation(agents, false);
-    expect(visible.map((a) => a.id).sort()).toEqual(['active1', 'idle1']);
+    expect(visible.map((a) => a.id).sort()).toEqual(['active1', 'idle1', 'wait1']);
   });
 
-  it('toggle ON: active, idle, and completed all pass', () => {
+  it('toggle ON: active, idle, waiting, and completed all pass', () => {
     const agents: AgentState[] = [
       makeAgent({ id: 'active1', status: 'active' }),
       makeAgent({ id: 'idle1', status: 'idle' }),
+      makeAgent({ id: 'wait1', status: 'waiting' }),
       makeAgent({ id: 'done1', status: 'completed' }),
     ];
     const visible = filterAgentsForPresentation(agents, true);
-    expect(visible.map((a) => a.id).sort()).toEqual(['active1', 'done1', 'idle1']);
+    expect(visible.map((a) => a.id).sort()).toEqual(['active1', 'done1', 'idle1', 'wait1']);
   });
 
-  it('toggle ON: error and waiting remain hidden', () => {
+  it('toggle ON: error remains hidden', () => {
     const agents: AgentState[] = [
       makeAgent({ id: 'err1', status: 'error' }),
-      makeAgent({ id: 'wait1', status: 'waiting' }),
       makeAgent({ id: 'done1', status: 'completed' }),
     ];
     const visible = filterAgentsForPresentation(agents, true);
     expect(visible.map((a) => a.id).sort()).toEqual(['done1']);
+  });
+
+  it('waiting passes regardless of the completed toggle (regression for turn-end heroes)', () => {
+    const agents: AgentState[] = [makeAgent({ id: 'turnend', status: 'waiting' })];
+    expect(filterAgentsForPresentation(agents, false).map((a) => a.id)).toEqual(['turnend']);
+    expect(filterAgentsForPresentation(agents, true).map((a) => a.id)).toEqual(['turnend']);
   });
 
   it('preserves all idle and active agents regardless of toggle', () => {
@@ -109,5 +115,13 @@ describe('computeShowSourceBadge', () => {
       makeAgent({ id: 'x1', source: 'codex', status: 'active' }),
     ];
     expect(computeShowSourceBadge(agents)).toBe(false);
+  });
+
+  it('counts waiting agents as live (consistent with filterAgentsForPresentation)', () => {
+    const agents: AgentState[] = [
+      makeAgent({ id: 'c1', source: 'claude', status: 'waiting' }),
+      makeAgent({ id: 'x1', source: 'codex', status: 'active' }),
+    ];
+    expect(computeShowSourceBadge(agents)).toBe(true);
   });
 });
