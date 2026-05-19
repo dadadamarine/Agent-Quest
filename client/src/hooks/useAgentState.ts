@@ -7,6 +7,30 @@ import { WS_URL } from '../config';
 const RECONNECT_DELAY_MS = 3000;
 const MAX_LOG_ENTRIES = 200;
 
+/**
+ * Decision the WebSocket onclose handler should take. Extracted into a pure
+ * function so the StrictMode mount→unmount→mount race can be regression-tested
+ * without standing up a React render environment.
+ *
+ *   - `stale` — the firing socket is not the one currently held by the hook.
+ *     A previous mount's WebSocket fired its onclose late after a new mount
+ *     already replaced wsRef.current. Skip reconnect; the new ws owns it.
+ *   - `cleanup` — the effect cleanup intentionally closed the socket. Skip
+ *     reconnect; the hook is unmounting.
+ *   - `reconnect` — genuine server- or network-side close. Schedule reconnect.
+ */
+export type CloseAction = 'stale' | 'cleanup' | 'reconnect';
+
+export function classifyCloseEvent(
+  currentWs: WebSocket | null,
+  firingWs: WebSocket,
+  shouldReconnect: boolean,
+): CloseAction {
+  if (currentWs !== firingWs) return 'stale';
+  if (!shouldReconnect) return 'cleanup';
+  return 'reconnect';
+}
+
 export interface AgentStateHook {
   agents: AgentState[];
   activityLog: ActivityLogEntry[];
@@ -100,19 +124,19 @@ export function useAgentState(): AgentStateHook {
       // code/reason help diagnose why the server (or browser) dropped the
       // connection — 1009 = message too big, 1006 = abnormal closure, 1000 =
       // normal. wasClean=false signals an unclean teardown (issue #7 hunt).
-      if (!shouldReconnect.current) {
-        console.log(
-          `[WS] closed by cleanup code=${event.code} reason="${event.reason}" wasClean=${event.wasClean}`,
-        );
+      const action = classifyCloseEvent(wsRef.current, ws, shouldReconnect.current);
+      const closeMeta = `code=${event.code} reason="${event.reason}" wasClean=${event.wasClean}`;
+      if (action === 'stale') {
+        console.log(`[WS] closed (stale ws) ${closeMeta} — skipping reconnect`);
+        return;
+      }
+      if (action === 'cleanup') {
+        console.log(`[WS] closed by cleanup ${closeMeta}`);
         return;
       }
       setConnected(false);
       eventBridge.emit('ws:disconnected');
-      console.log(
-        `[WS] disconnected code=${event.code} reason="${event.reason}" wasClean=${event.wasClean} — reconnecting in`,
-        RECONNECT_DELAY_MS,
-        'ms',
-      );
+      console.log(`[WS] disconnected ${closeMeta} — reconnecting in`, RECONNECT_DELAY_MS, 'ms');
       reconnectTimer.current = setTimeout(connect, RECONNECT_DELAY_MS);
     };
 
