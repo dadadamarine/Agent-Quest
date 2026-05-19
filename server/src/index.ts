@@ -252,8 +252,8 @@ const server = Bun.serve({
       wsServer.handleOpen(ws);
       wsServer.sendSnapshot(ws, stateManager.getAll(), allConfigDirs());
     },
-    close(ws: WsClient) {
-      wsServer.handleClose(ws);
+    close(ws: WsClient, code: number, reason: string) {
+      wsServer.handleClose(ws, code, reason);
     },
     message() {
       // Client-to-server messages not needed in Phase 1

@@ -24,6 +24,14 @@ export function useAgentState(): AgentStateHook {
   const [configDirs, setConfigDirs] = useState<string[] | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Distinguishes "the effect cleanup intentionally closed the socket" from
+  // "the server or network dropped us". Without this, `onclose` would always
+  // arm a reconnect timer — and on a StrictMode mount→unmount→mount cycle
+  // (or React Fast Refresh) that timer would fire on an orphan hook instance
+  // and call setState / emit bridge events for a hook that no longer exists,
+  // racing against the new mount. That race is the original symptom behind
+  // the "connect → error → disconnect" reconnect loop in issue #7.
+  const shouldReconnect = useRef(true);
 
   const handleEvent = useCallback((event: WsEvent) => {
     switch (event.type) {
@@ -88,27 +96,47 @@ export function useAgentState(): AgentStateHook {
       }
     };
 
-    ws.onclose = () => {
+    ws.onclose = (event) => {
+      // code/reason help diagnose why the server (or browser) dropped the
+      // connection — 1009 = message too big, 1006 = abnormal closure, 1000 =
+      // normal. wasClean=false signals an unclean teardown (issue #7 hunt).
+      if (!shouldReconnect.current) {
+        console.log(
+          `[WS] closed by cleanup code=${event.code} reason="${event.reason}" wasClean=${event.wasClean}`,
+        );
+        return;
+      }
       setConnected(false);
       eventBridge.emit('ws:disconnected');
-      console.log('[WS] disconnected, reconnecting in', RECONNECT_DELAY_MS, 'ms');
+      console.log(
+        `[WS] disconnected code=${event.code} reason="${event.reason}" wasClean=${event.wasClean} — reconnecting in`,
+        RECONNECT_DELAY_MS,
+        'ms',
+      );
       reconnectTimer.current = setTimeout(connect, RECONNECT_DELAY_MS);
     };
 
     ws.onerror = (err) => {
-      console.error('[WS] error:', err);
+      // Browsers do not expose error details for security; only the event type
+      // is meaningful. Pair this with the onclose code/reason for diagnosis.
+      console.error(`[WS] error type=${err.type}`);
       ws.close();
     };
   }, [handleEvent]);
 
   useEffect(() => {
+    shouldReconnect.current = true;
     connect();
 
     return () => {
+      // Mark cleanup so the upcoming `onclose` does NOT schedule a reconnect.
+      shouldReconnect.current = false;
       if (reconnectTimer.current !== null) {
         clearTimeout(reconnectTimer.current);
+        reconnectTimer.current = null;
       }
       wsRef.current?.close();
+      wsRef.current = null;
     };
   }, [connect]);
 

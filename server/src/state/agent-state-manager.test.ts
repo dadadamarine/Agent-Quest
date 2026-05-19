@@ -462,6 +462,104 @@ describe('AgentStateManager', () => {
     expect(agent!.toolCalls).toHaveLength(2);
   });
 
+  test('caps toolCalls on first event when initial batch exceeds limit (creation path)', () => {
+    const mgr = new AgentStateManager();
+    const bigBatch = Array.from({ length: 55 }, (_, i) => ({
+      id: `tc-${i}`,
+      name: 'Read',
+      timestamp: Date.now() + i,
+      input: { file_path: `/file-${i}.ts` },
+    }));
+    mgr.processEvent(makeEvent({ toolCalls: bigBatch }));
+
+    const agent = mgr.getAgent('sess-1');
+    expect(agent!.toolCalls).toHaveLength(50);
+    // Oldest 5 dropped — newest survives
+    expect(agent!.toolCalls[0]!.id).toBe('tc-5');
+    expect(agent!.toolCalls[49]!.id).toBe('tc-54');
+  });
+
+  test('caps toolCalls across accumulated updates (update path drops oldest)', () => {
+    const mgr = new AgentStateManager();
+    // Seed: 40 calls
+    const initial = Array.from({ length: 40 }, (_, i) => ({
+      id: `tc-${i}`,
+      name: 'Read',
+      timestamp: Date.now() + i,
+      input: { file_path: `/file-${i}.ts` },
+    }));
+    mgr.processEvent(makeEvent({ toolCalls: initial }));
+
+    // Update: 15 more calls (total would be 55, cap to 50)
+    const more = Array.from({ length: 15 }, (_, i) => ({
+      id: `tc-extra-${i}`,
+      name: 'Bash',
+      timestamp: Date.now() + 100 + i,
+      input: { command: `cmd-${i}` },
+    }));
+    mgr.processEvent(makeEvent({ toolCalls: more, activity: 'bash' }));
+
+    const agent = mgr.getAgent('sess-1');
+    expect(agent!.toolCalls).toHaveLength(50);
+    // Oldest 5 dropped — first surviving call is the 6th original
+    expect(agent!.toolCalls[0]!.id).toBe('tc-5');
+    // Newest extras at the tail
+    expect(agent!.toolCalls[49]!.id).toBe('tc-extra-14');
+  });
+
+  test('caps filesModified with dedup, preserving newest after cap', () => {
+    const mgr = new AgentStateManager();
+    // First batch: 30 unique files
+    const firstBatch = Array.from({ length: 30 }, (_, i) => ({
+      id: `tc-${i}`,
+      name: 'Edit',
+      timestamp: Date.now() + i,
+      input: { file_path: `/file-${i}.ts` },
+    }));
+    mgr.processEvent(makeEvent({ toolCalls: firstBatch, activity: 'editing' }));
+
+    // Second batch: duplicates of /file-0 and /file-1 (dedup skip)
+    // plus 25 new files (cap kicks in)
+    const secondBatch = [
+      { id: 'tc-dup-0', name: 'Edit', timestamp: Date.now() + 100, input: { file_path: '/file-0.ts' } },
+      { id: 'tc-dup-1', name: 'Edit', timestamp: Date.now() + 101, input: { file_path: '/file-1.ts' } },
+      ...Array.from({ length: 25 }, (_, i) => ({
+        id: `tc-new-${i}`,
+        name: 'Edit',
+        timestamp: Date.now() + 200 + i,
+        input: { file_path: `/new-${i}.ts` },
+      })),
+    ];
+    mgr.processEvent(makeEvent({ toolCalls: secondBatch, activity: 'editing' }));
+
+    const agent = mgr.getAgent('sess-1');
+    // 30 (unique) + 25 (new unique) = 55, capped to 50; duplicates skipped
+    expect(agent!.filesModified).toHaveLength(50);
+    // Oldest 5 dropped — first surviving is /file-5.ts
+    expect(agent!.filesModified[0]).toBe('/file-5.ts');
+    // Newest at the tail
+    expect(agent!.filesModified[49]).toBe('/new-24.ts');
+  });
+
+  test('empty toolCalls in update event preserves existing accumulated history', () => {
+    const mgr = new AgentStateManager();
+    // Seed: 10 calls
+    const seed = Array.from({ length: 10 }, (_, i) => ({
+      id: `tc-${i}`,
+      name: 'Read',
+      timestamp: Date.now() + i,
+      input: { file_path: `/file-${i}.ts` },
+    }));
+    mgr.processEvent(makeEvent({ toolCalls: seed }));
+
+    // Empty update — should not mutate the existing array
+    mgr.processEvent(makeEvent({ toolCalls: [], activity: 'thinking' }));
+
+    const agent = mgr.getAgent('sess-1');
+    expect(agent!.toolCalls).toHaveLength(10);
+    expect(agent!.toolCalls.map((tc) => tc.id)).toEqual(seed.map((tc) => tc.id));
+  });
+
   test('getAll returns all agents', () => {
     const mgr = new AgentStateManager();
     mgr.processEvent(makeEvent({ sessionId: 'sess-1' }));

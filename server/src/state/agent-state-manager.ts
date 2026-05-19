@@ -4,6 +4,24 @@ import type { ParsedEvent } from '../parsers/session-parser';
 
 const EDIT_TOOLS = new Set(['Edit', 'Write', 'NotebookEdit']);
 
+// AgentState retention policy: each agent exposes a bounded "recent history"
+// of tool calls and modified files to the UI. The Party Bar, Detail Panel,
+// and village scene only need the most recent activity — older entries are
+// dropped FIFO. Transport-level concerns (payload byte budget, broadcast
+// frame size) live in `WebSocketServer`; this cap is the state manager's own
+// input policy and does not depend on which transport happens to ship it.
+const MAX_TOOL_CALLS_PER_AGENT = 50;
+const MAX_FILES_MODIFIED_PER_AGENT = 50;
+
+function trimAgentHistory(agent: AgentState): void {
+  if (agent.toolCalls.length > MAX_TOOL_CALLS_PER_AGENT) {
+    agent.toolCalls.splice(0, agent.toolCalls.length - MAX_TOOL_CALLS_PER_AGENT);
+  }
+  if (agent.filesModified.length > MAX_FILES_MODIFIED_PER_AGENT) {
+    agent.filesModified.splice(0, agent.filesModified.length - MAX_FILES_MODIFIED_PER_AGENT);
+  }
+}
+
 function cwdBasename(cwd: string): string {
   const parts = cwd.split('/').filter((p) => p.length > 0);
   return parts[parts.length - 1] ?? cwd;
@@ -143,6 +161,7 @@ export class AgentStateManager {
 
     if (existing === undefined) {
       const agent = this.createAgent(event, configDir, source, nameOverride, subagentCtx);
+      trimAgentHistory(agent);
       this.agents.set(event.sessionId, agent);
       this.applyDerivedStatus(agent);
       this.applyTurnAndError(agent, event);
@@ -525,6 +544,7 @@ export class AgentStateManager {
         agent.filesModified.push(f);
       }
     }
+    trimAgentHistory(agent);
   }
 
   private extractModifiedFiles(event: ParsedEvent): string[] {
