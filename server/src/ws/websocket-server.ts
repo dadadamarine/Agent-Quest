@@ -29,11 +29,19 @@ export class WebSocketServer {
     const event: WsEvent = { type: 'snapshot', agents, configDirs: [...configDirs] };
     const data = JSON.stringify(event);
     const bytes = Buffer.byteLength(data, 'utf8');
-    console.log(`[WS] snapshot bytes=${bytes} agents=${agents.length}`);
+    // readyState before and after send pins down whether Bun saw the socket as
+    // OPEN at send time, and whether send() itself flipped it. Pairs with the
+    // browser onclose code/reason to triangulate issue #11.
+    const readyBefore = ws.readyState;
+    const sendResult = ws.send(data);
+    const readyAfter = ws.readyState;
+    console.log(
+      `[WS] snapshot bytes=${bytes} agents=${agents.length} ` +
+        `readyBefore=${readyBefore} sendResult=${sendResult} readyAfter=${readyAfter}`,
+    );
     if (bytes > LARGE_MESSAGE_WARN_BYTES) {
       console.warn(`[WS] large snapshot frame: ${bytes} bytes (warn threshold: ${LARGE_MESSAGE_WARN_BYTES})`);
     }
-    ws.send(data);
   }
 
   broadcastAgentUpdate(agent: AgentState): void {
