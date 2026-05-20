@@ -18,8 +18,28 @@ export class BootScene extends Phaser.Scene {
   }
 
   preload(): void {
+    // Diagnostic logging for issue #13 — preload stuck at ~30%. These three
+    // listeners pin down which file ID was the last to land and at what
+    // progress fraction. Empirically reducing `maxParallelDownloads` makes
+    // things WORSE (drops to 0% stuck), so this PR ships diagnostics only
+    // and the real fix is tracked as the next strand.
     this.load.on(Phaser.Loader.Events.FILE_LOAD_ERROR, (file: Phaser.Loader.File) => {
+      console.warn(`[BOOT] FILE_LOAD_ERROR: ${file.src}`);
       this.missingAssets.push(file.src);
+    });
+    this.load.on('complete', () => {
+      console.log('[BOOT] preload COMPLETE');
+    });
+    this.load.on('filecomplete', (key: string, type: string) => {
+      console.log(`[BOOT] filecomplete type=${type} key=${key}`);
+    });
+    let lastReportedPct = -1;
+    this.load.on('progress', (p: number) => {
+      const pct = Math.floor(p * 10) * 10;
+      if (pct !== lastReportedPct) {
+        lastReportedPct = pct;
+        console.log(`[BOOT] preload progress ${pct}% (queue=${this.load.totalToLoad}, complete=${this.load.totalComplete})`);
+      }
     });
 
     // Logo shown on the loading screen + reused by the React TopBar
