@@ -140,16 +140,20 @@ export class HeroSprite {
     const halfH = this.sprite.displayHeight / 2;
     const halfW = this.sprite.displayWidth / 2;
 
-    // Above-head bubble (task + activity message)
-    this.activityMsgOffsetY = -(halfH + 4);
-    this.taskOffsetY = this.activityMsgOffsetY - 14;
+    // Above-head bubble — sits right at the head so the bubble's tail looks
+    // like it grows out of the sprite. The gap between sprite and bubble was
+    // ~16 px before; pulling it in to ~2 px reads as direct speech.
+    this.activityMsgOffsetY = -(halfH - 2);
+    this.taskOffsetY = this.activityMsgOffsetY - 13;
 
     // Below-feet name (2 lines)
-    this.nameOffsetY = halfH + 8;
+    this.nameOffsetY = halfH + 6;
 
-    // Top-right index marker
-    this.indexOffsetX = halfW + 4;
-    this.indexOffsetY = -(halfH - 2);
+    // Index marker sits on the same row as the name, anchored to the sprite's
+    // left edge. Reads as "[N] hero-name" — the number and the title belong
+    // together and match the row in the PartyBar.
+    this.indexOffsetX = -(halfW + 2);
+    this.indexOffsetY = this.nameOffsetY;
 
     const idleAnimKey = `${this.idleKey}-anim`;
     if (!scene.anims.exists(idleAnimKey)) {
@@ -213,16 +217,17 @@ export class HeroSprite {
       align: 'center',
     }).setOrigin(0.5, 1).setVisible(false);
 
-    // Index marker — small square at the sprite's top-right, matches PartyBar row number.
+    // Index marker — sits to the left of the name on the same row. `setOrigin(1, 0)`
+    // anchors its right edge to the position so it grows leftward; the actual x is
+    // sprite-left-edge minus a 2px gap.
     this.indexText = addCrispText(scene, x + this.indexOffsetX, y + this.indexOffsetY, '', {
       fontSize: '10px',
       color: INDEX_COLOR,
       fontFamily: "'Fira Code', monospace",
-      fontStyle: '600',
       backgroundColor: 'rgba(0,0,0,0.8)',
       padding: { x: 3, y: 1 },
       align: 'center',
-    }).setOrigin(0, 0).setVisible(false);
+    }).setOrigin(1, 0).setVisible(false);
 
     this.updateDepth();
   }
