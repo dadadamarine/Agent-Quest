@@ -80,6 +80,7 @@ export class HeroSprite {
   private nameText: Phaser.GameObjects.Text;
   private taskText: Phaser.GameObjects.Text;
   private activityMsgText: Phaser.GameObjects.Text;
+  private bubbleBg: Phaser.GameObjects.Graphics;
   private indexText: Phaser.GameObjects.Text;
   private _x: number;
   private _y: number;
@@ -198,13 +199,16 @@ export class HeroSprite {
       wordWrap: { width: 96, useAdvancedWrap: true },
     }).setOrigin(0.5, 0);
 
-    // Speech bubble — task (user prompt) on top, activity feed message below.
+    // Speech bubble — Graphics plate (rounded rect + tail) holds both text lines.
+    // The plate is sized in `updateBubble()` after the texts have rasterized so
+    // its width tracks the widest line.
+    this.bubbleBg = scene.add.graphics();
+    this.bubbleBg.setVisible(false);
+
     this.taskText = addCrispText(scene, x, y + this.taskOffsetY, '', {
       fontSize: '10px',
       color: BUBBLE_TASK_COLOR,
       fontFamily: "'Fira Code', monospace",
-      backgroundColor: LABEL_BG,
-      padding: LABEL_PAD,
       align: 'center',
     }).setOrigin(0.5, 1).setVisible(false);
 
@@ -212,8 +216,6 @@ export class HeroSprite {
       fontSize: '10px',
       color: BUBBLE_MSG_COLOR,
       fontFamily: "'Fira Code', monospace",
-      backgroundColor: LABEL_BG,
-      padding: LABEL_PAD,
       align: 'center',
     }).setOrigin(0.5, 1).setVisible(false);
 
@@ -248,6 +250,7 @@ export class HeroSprite {
     this.taskText.setPosition(x, y + this.taskOffsetY);
     this.activityMsgText.setPosition(x, y + this.activityMsgOffsetY);
     this.indexText.setPosition(x + this.indexOffsetX, y + this.indexOffsetY);
+    this.updateBubble();
     if (this.selectionHalo !== null) {
       this.selectionHalo.setPosition(x, y);
     }
@@ -376,10 +379,58 @@ export class HeroSprite {
     const footY = this._y + this.sprite.displayHeight * 0.5;
     this.sprite.setDepth(footY + 0.5);
     this.nameText.setDepth(footY + 0.6);
+    this.bubbleBg.setDepth(footY + 0.55);  // behind the text
     this.taskText.setDepth(footY + 0.6);
     this.activityMsgText.setDepth(footY + 0.6);
     this.indexText.setDepth(footY + 0.7);
     if (this.selectionHalo !== null) this.selectionHalo.setDepth(footY + 0.4);
+  }
+
+  /**
+   * Redraw the speech-bubble plate behind taskText + activityMsgText, sized
+   * to whichever lines are currently visible. Called on every text/visibility
+   * change. Hides the plate when both lines are empty.
+   */
+  private updateBubble(): void {
+    const taskVisible = this.taskText.visible && this.taskText.text.length > 0;
+    const msgVisible = this.activityMsgText.visible && this.activityMsgText.text.length > 0;
+    this.bubbleBg.clear();
+    if (!taskVisible && !msgVisible) {
+      this.bubbleBg.setVisible(false);
+      return;
+    }
+    const padX = 6;
+    const padY = 3;
+    const gap = 1;
+    const lineH = 13;
+    const widths: number[] = [];
+    if (taskVisible) widths.push(this.taskText.displayWidth);
+    if (msgVisible) widths.push(this.activityMsgText.displayWidth);
+    const innerW = Math.max(...widths);
+    const lineCount = (taskVisible ? 1 : 0) + (msgVisible ? 1 : 0);
+    const innerH = lineH * lineCount + (lineCount > 1 ? gap : 0);
+    const w = innerW + padX * 2;
+    const h = innerH + padY * 2;
+    const cx = this._x;
+    const bottom = this._y + this.activityMsgOffsetY + padY;  // anchor to bottom of bubble (just above sprite head)
+    const left = cx - w / 2;
+    const top = bottom - h;
+    // Plate
+    this.bubbleBg.fillStyle(0x000000, 0.7);
+    this.bubbleBg.fillRoundedRect(left, top, w, h, 4);
+    this.bubbleBg.lineStyle(1, 0xF5E6C8, 0.25);
+    this.bubbleBg.strokeRoundedRect(left, top, w, h, 4);
+    // Tail — small triangle pointing down to the sprite's head.
+    const tailW = 6;
+    const tailH = 4;
+    this.bubbleBg.fillStyle(0x000000, 0.7);
+    this.bubbleBg.beginPath();
+    this.bubbleBg.moveTo(cx - tailW / 2, bottom);
+    this.bubbleBg.lineTo(cx + tailW / 2, bottom);
+    this.bubbleBg.lineTo(cx, bottom + tailH);
+    this.bubbleBg.closePath();
+    this.bubbleBg.fillPath();
+    this.bubbleBg.setVisible(true);
   }
 
   /** Source / model badges and subagent markers live in PartyBar now — these are no-ops kept for caller compatibility. */
@@ -403,10 +454,11 @@ export class HeroSprite {
     if (task === undefined || task.length === 0) {
       this.taskText.setText('');
       this.taskText.setVisible(false);
-      return;
+    } else {
+      this.taskText.setText(truncateLabel(task, TASK_MAX_CHARS));
+      this.taskText.setVisible(true);
     }
-    this.taskText.setText(truncateLabel(task, TASK_MAX_CHARS));
-    this.taskText.setVisible(true);
+    this.updateBubble();
   }
 
   /** Update the activity-feed message line (last tool call / message). Pass undefined/empty to hide. */
@@ -421,10 +473,11 @@ export class HeroSprite {
     if (detail.length === 0) {
       this.activityMsgText.setText('');
       this.activityMsgText.setVisible(false);
-      return;
+    } else {
+      this.activityMsgText.setText(detail);
+      this.activityMsgText.setVisible(true);
     }
-    this.activityMsgText.setText(detail);
-    this.activityMsgText.setVisible(true);
+    this.updateBubble();
   }
 
   /** Set the party index marker. Pass undefined to hide. */
@@ -503,6 +556,7 @@ export class HeroSprite {
         this.taskText.setPosition(this._x, this._y + this.taskOffsetY);
         this.activityMsgText.setPosition(this._x, this._y + this.activityMsgOffsetY);
         this.indexText.setPosition(this._x + this.indexOffsetX, this._y + this.indexOffsetY);
+        this.updateBubble();
         if (this.selectionHalo !== null) {
           this.selectionHalo.setPosition(this._x, this._y);
         }
@@ -540,6 +594,7 @@ export class HeroSprite {
     }
     this.sprite.destroy();
     this.nameText.destroy();
+    this.bubbleBg.destroy();
     this.taskText.destroy();
     this.activityMsgText.destroy();
     this.indexText.destroy();
