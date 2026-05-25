@@ -144,7 +144,7 @@ export class HeroSprite {
     // Above-head bubble — sits right at the head so the bubble's tail looks
     // like it grows out of the sprite. The gap between sprite and bubble was
     // ~16 px before; pulling it in to ~2 px reads as direct speech.
-    this.activityMsgOffsetY = -(halfH - 2);
+    this.activityMsgOffsetY = -(halfH - 10);
     this.taskOffsetY = this.activityMsgOffsetY - 13;
 
     // Below-feet name (2 lines). Tiny Swords CC0 sprites have ~8 px of
