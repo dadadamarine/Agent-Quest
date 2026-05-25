@@ -147,8 +147,8 @@ export class HeroSprite {
     this.activityMsgOffsetY = -(halfH - 2);
     this.taskOffsetY = this.activityMsgOffsetY - 13;
 
-    // Below-feet name (2 lines) — flush with the sprite's feet.
-    this.nameOffsetY = halfH - 2;
+    // Below-feet name (2 lines) — exactly at the sprite's foot line.
+    this.nameOffsetY = halfH;
 
     // Index marker sits on the same row as the name, anchored to the sprite's
     // left edge. Reads as "[N] hero-name" — the number and the title belong
