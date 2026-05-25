@@ -155,7 +155,7 @@ export class HeroSprite {
     // Index marker sits on the same row as the name, anchored to the sprite's
     // left edge. Reads as "[N] hero-name" — the number and the title belong
     // together and match the row in the PartyBar.
-    this.indexOffsetX = -(halfW + 2);
+    this.indexOffsetX = -(halfW + 8);
     this.indexOffsetY = this.nameOffsetY;
 
     const idleAnimKey = `${this.idleKey}-anim`;
