@@ -32,8 +32,8 @@ const ERROR_WINDOW_MS = 90 * 1000;
 
 const LABEL_BG = 'rgba(0,0,0,0.65)';
 const LABEL_PAD = { x: 4, y: 2 };
-const BUBBLE_TASK_COLOR = '#3D1F00';
-const BUBBLE_MSG_COLOR = '#6B4226';
+const BUBBLE_TASK_COLOR = '#3D1F00';   // user command — dark brown, dominant
+const BUBBLE_MSG_COLOR = '#8C6A4A';   // system feedback — mid brown, recessive
 const INDEX_COLOR = '#F5E6C8';
 
 const HALO_TEXTURE_KEY = 'hero-selection-halo';
@@ -205,7 +205,8 @@ export class HeroSprite {
     this.bubbleBg.setVisible(false);
 
     this.taskText = addCrispText(scene, x, y + this.taskOffsetY, '', {
-      fontSize: '10px',
+      fontSize: '11px',
+      fontStyle: 'bold',
       color: BUBBLE_TASK_COLOR,
       fontFamily: "'Fira Code', monospace",
       align: 'center',
@@ -213,7 +214,7 @@ export class HeroSprite {
     }).setOrigin(0.5, 1).setVisible(false);
 
     this.activityMsgText = addCrispText(scene, x, y + this.activityMsgOffsetY, '', {
-      fontSize: '10px',
+      fontSize: '9px',
       color: BUBBLE_MSG_COLOR,
       fontFamily: "'Fira Code', monospace",
       align: 'center',
