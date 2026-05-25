@@ -147,8 +147,8 @@ export class HeroSprite {
     this.activityMsgOffsetY = -(halfH - 2);
     this.taskOffsetY = this.activityMsgOffsetY - 13;
 
-    // Below-feet name (2 lines)
-    this.nameOffsetY = halfH + 6;
+    // Below-feet name (2 lines) — sits right under the sprite's feet.
+    this.nameOffsetY = halfH + 2;
 
     // Index marker sits on the same row as the name, anchored to the sprite's
     // left edge. Reads as "[N] hero-name" — the number and the title belong
@@ -400,29 +400,42 @@ export class HeroSprite {
       return;
     }
     const padX = 6;
-    const padY = 3;
-    const gap = 1;
-    const lineH = 13;
-    const widths: number[] = [];
-    if (taskVisible) widths.push(this.taskText.displayWidth);
-    if (msgVisible) widths.push(this.activityMsgText.displayWidth);
-    const innerW = Math.max(...widths);
-    const lineCount = (taskVisible ? 1 : 0) + (msgVisible ? 1 : 0);
-    const innerH = lineH * lineCount + (lineCount > 1 ? gap : 0);
-    const w = innerW + padX * 2;
-    const h = innerH + padY * 2;
+    const padY = 4;
+
+    // Derive plate bounds from the actual text positions + display sizes.
+    // Both texts use origin (0.5, 1) — their anchor is bottom-center, so:
+    //   textTop    = text.y - text.displayHeight
+    //   textBottom = text.y
+    const texts: Phaser.GameObjects.Text[] = [];
+    if (taskVisible) texts.push(this.taskText);
+    if (msgVisible) texts.push(this.activityMsgText);
+
+    let minTop = Infinity;
+    let maxBottom = -Infinity;
+    let maxWidth = 0;
+    for (const t of texts) {
+      const tTop = t.y - t.displayHeight;
+      const tBottom = t.y;
+      if (tTop < minTop) minTop = tTop;
+      if (tBottom > maxBottom) maxBottom = tBottom;
+      if (t.displayWidth > maxWidth) maxWidth = t.displayWidth;
+    }
+
+    const w = maxWidth + padX * 2;
+    const top = minTop - padY;
+    const bottom = maxBottom + padY;
+    const h = bottom - top;
     const cx = this._x;
-    const bottom = this._y + this.activityMsgOffsetY + padY;  // anchor to bottom of bubble (just above sprite head)
     const left = cx - w / 2;
-    const top = bottom - h;
-    // Plate
+
     this.bubbleBg.fillStyle(0x000000, 0.7);
-    this.bubbleBg.fillRoundedRect(left, top, w, h, 4);
-    this.bubbleBg.lineStyle(1, 0xF5E6C8, 0.25);
-    this.bubbleBg.strokeRoundedRect(left, top, w, h, 4);
-    // Tail — small triangle pointing down to the sprite's head.
-    const tailW = 6;
-    const tailH = 4;
+    this.bubbleBg.fillRoundedRect(left, top, w, h, 5);
+    this.bubbleBg.lineStyle(1, 0xF5E6C8, 0.2);
+    this.bubbleBg.strokeRoundedRect(left, top, w, h, 5);
+
+    // Tail — triangle pointing down toward the sprite's head.
+    const tailW = 8;
+    const tailH = 6;
     this.bubbleBg.fillStyle(0x000000, 0.7);
     this.bubbleBg.beginPath();
     this.bubbleBg.moveTo(cx - tailW / 2, bottom);
