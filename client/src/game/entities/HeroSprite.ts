@@ -153,7 +153,7 @@ export class HeroSprite {
     this.nameOffsetY = halfH - 24;
 
     // Index marker — top-left of the sprite, snug against the head.
-    this.indexOffsetX = -(halfW - 12);
+    this.indexOffsetX = -(halfW - 18);
     this.indexOffsetY = -(halfH - 12);
 
     const idleAnimKey = `${this.idleKey}-anim`;
