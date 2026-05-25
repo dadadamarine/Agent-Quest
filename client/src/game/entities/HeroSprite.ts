@@ -230,9 +230,7 @@ export class HeroSprite {
       align: 'center',
     }).setOrigin(1, 0).setVisible(false);
 
-    // Default bubble to ghosted so overlapping heroes stay readable.
-    // setSelected(true) raises to full opacity.
-    this.setBubbleAlpha(0.4);
+    this.setBubbleAlpha(1.0);
     this.updateDepth();
   }
 
@@ -308,7 +306,7 @@ export class HeroSprite {
       this.setBubbleAlpha(1.0);
     } else {
       this.refreshNameColor();
-      this.setBubbleAlpha(0.4);
+      this.setBubbleAlpha(1.0);
     }
   }
 
