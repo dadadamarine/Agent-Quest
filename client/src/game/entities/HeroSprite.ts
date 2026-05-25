@@ -150,7 +150,7 @@ export class HeroSprite {
     // Below-feet name (2 lines). Tiny Swords CC0 sprites have ~8 px of
     // transparent padding below the character's feet inside the frame, so
     // the visual foot line is well above the frame's mathematical bottom.
-    this.nameOffsetY = halfH - 8;
+    this.nameOffsetY = halfH - 14;
 
     // Index marker sits on the same row as the name, anchored to the sprite's
     // left edge. Reads as "[N] hero-name" — the number and the title belong
