@@ -32,8 +32,8 @@ const ERROR_WINDOW_MS = 90 * 1000;
 
 const LABEL_BG = 'rgba(0,0,0,0.65)';
 const LABEL_PAD = { x: 4, y: 2 };
-const BUBBLE_TASK_COLOR = '#FFD27A';
-const BUBBLE_MSG_COLOR = '#AABBCC';
+const BUBBLE_TASK_COLOR = '#3D1F00';
+const BUBBLE_MSG_COLOR = '#6B4226';
 const INDEX_COLOR = '#F5E6C8';
 
 const HALO_TEXTURE_KEY = 'hero-selection-halo';
@@ -152,11 +152,9 @@ export class HeroSprite {
     // the visual foot line is well above the frame's mathematical bottom.
     this.nameOffsetY = halfH - 24;
 
-    // Index marker sits on the same row as the name, anchored to the sprite's
-    // left edge. Reads as "[N] hero-name" — the number and the title belong
-    // together and match the row in the PartyBar.
-    this.indexOffsetX = -(halfW + 8);
-    this.indexOffsetY = this.nameOffsetY;
+    // Index marker — top-left of the sprite, snug against the head.
+    this.indexOffsetX = -(halfW - 2);
+    this.indexOffsetY = -(halfH - 4);
 
     const idleAnimKey = `${this.idleKey}-anim`;
     if (!scene.anims.exists(idleAnimKey)) {
@@ -431,21 +429,30 @@ export class HeroSprite {
     const cx = this._x;
     const left = cx - w / 2;
 
-    this.bubbleBg.fillStyle(0x000000, 0.7);
-    this.bubbleBg.fillRoundedRect(left, top, w, h, 5);
-    this.bubbleBg.lineStyle(1, 0xF5E6C8, 0.2);
-    this.bubbleBg.strokeRoundedRect(left, top, w, h, 5);
+    // Parchment-style speech bubble: warm cream fill + dark brown border.
+    this.bubbleBg.fillStyle(0xF5E0B0, 0.92);
+    this.bubbleBg.fillRoundedRect(left, top, w, h, 9);
+    this.bubbleBg.lineStyle(2, 0x8B5E3C, 0.9);
+    this.bubbleBg.strokeRoundedRect(left, top, w, h, 9);
 
     // Tail — triangle pointing down toward the sprite's head.
-    const tailW = 8;
-    const tailH = 6;
-    this.bubbleBg.fillStyle(0x000000, 0.7);
+    const tailW = 10;
+    const tailH = 8;
+    // Fill tail with parchment color first, then draw border edges.
+    this.bubbleBg.fillStyle(0xF5E0B0, 0.92);
     this.bubbleBg.beginPath();
     this.bubbleBg.moveTo(cx - tailW / 2, bottom);
     this.bubbleBg.lineTo(cx + tailW / 2, bottom);
     this.bubbleBg.lineTo(cx, bottom + tailH);
     this.bubbleBg.closePath();
     this.bubbleBg.fillPath();
+    // Border on the two exposed tail edges (left-diagonal + right-diagonal).
+    this.bubbleBg.lineStyle(2, 0x8B5E3C, 0.9);
+    this.bubbleBg.beginPath();
+    this.bubbleBg.moveTo(cx - tailW / 2, bottom);
+    this.bubbleBg.lineTo(cx, bottom + tailH);
+    this.bubbleBg.lineTo(cx + tailW / 2, bottom);
+    this.bubbleBg.strokePath();
     this.bubbleBg.setVisible(true);
   }
 
