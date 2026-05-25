@@ -10,10 +10,10 @@ const MOVE_SPEED = 150;
 /** Ground distance covered by one full run-cycle. Keeps legs synced to travel. */
 const RUN_PIXELS_PER_CYCLE = 60;
 
-/** Truncation caps. Name wraps to 2 lines, so we allow longer than a single-line layout. */
-const NAME_MAX_CHARS = 32;
-const TASK_MAX_CHARS = 38;
-const ACTIVITY_MSG_MAX_CHARS = 40;
+/** Truncation caps — short so labels stay inside the sprite's visual footprint. */
+const NAME_MAX_CHARS = 24;
+const TASK_MAX_CHARS = 22;
+const ACTIVITY_MSG_MAX_CHARS = 22;
 
 const ACTIVITY_COLOR: Record<AgentActivity, string> = {
   idle:      '#888888',
@@ -378,11 +378,13 @@ export class HeroSprite {
   private updateDepth(): void {
     const footY = this._y + this.sprite.displayHeight * 0.5;
     this.sprite.setDepth(footY + 0.5);
-    this.nameText.setDepth(footY + 0.6);
-    this.bubbleBg.setDepth(footY + 0.55);  // behind the text
-    this.taskText.setDepth(footY + 0.6);
-    this.activityMsgText.setDepth(footY + 0.6);
-    this.indexText.setDepth(footY + 0.7);
+    // Labels render above buildings (buildings sort by their foot-y too,
+    // so footY + 1 puts hero labels in front of any building at the same row).
+    this.nameText.setDepth(footY + 1.1);
+    this.bubbleBg.setDepth(footY + 1.0);
+    this.taskText.setDepth(footY + 1.1);
+    this.activityMsgText.setDepth(footY + 1.1);
+    this.indexText.setDepth(footY + 1.2);
     if (this.selectionHalo !== null) this.selectionHalo.setDepth(footY + 0.4);
   }
 
