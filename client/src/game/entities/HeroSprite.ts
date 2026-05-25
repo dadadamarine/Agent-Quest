@@ -230,7 +230,16 @@ export class HeroSprite {
       align: 'center',
     }).setOrigin(1, 0).setVisible(false);
 
+    // Default bubble to ghosted so overlapping heroes stay readable.
+    // setSelected(true) raises to full opacity.
+    this.setBubbleAlpha(0.4);
     this.updateDepth();
+  }
+
+  private setBubbleAlpha(alpha: number): void {
+    this.bubbleBg.setAlpha(alpha);
+    this.taskText.setAlpha(alpha);
+    this.activityMsgText.setAlpha(alpha);
   }
 
   get x(): number { return this._x; }
@@ -296,8 +305,10 @@ export class HeroSprite {
         ease: 'Sine.easeInOut',
       });
       this.nameText.setColor('#FFFFFF');
+      this.setBubbleAlpha(1.0);
     } else {
       this.refreshNameColor();
+      this.setBubbleAlpha(0.4);
     }
   }
 
