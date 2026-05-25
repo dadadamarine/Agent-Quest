@@ -11,7 +11,7 @@ const MOVE_SPEED = 150;
 const RUN_PIXELS_PER_CYCLE = 60;
 
 /** Truncation caps — short so labels stay inside the sprite's visual footprint. */
-const NAME_MAX_CHARS = 24;
+const NAME_MAX_CHARS = 18;
 const TASK_MAX_CHARS = 22;
 const ACTIVITY_MSG_MAX_CHARS = 22;
 
@@ -198,7 +198,6 @@ export class HeroSprite {
       backgroundColor: LABEL_BG,
       padding: LABEL_PAD,
       align: 'center',
-      wordWrap: { width: 96, useAdvancedWrap: true },
     }).setOrigin(0.5, 0);
 
     // Speech bubble — Graphics plate (rounded rect + tail) holds both text lines.
