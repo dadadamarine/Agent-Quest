@@ -41,7 +41,7 @@ export function addCrispText(
   style: Phaser.Types.GameObjects.Text.TextStyle,
 ): Phaser.GameObjects.Text {
   const t = scene.add.text(x, y, text, { resolution: currentTextRes, ...style });
-  const reapplyFilter = () => t.texture.setFilter(Phaser.Textures.FilterMode.NEAREST);
+  const reapplyFilter = () => t.texture.setFilter(Phaser.Textures.FilterMode.LINEAR);
   reapplyFilter();
   const original = t.updateText.bind(t);
   t.updateText = () => {

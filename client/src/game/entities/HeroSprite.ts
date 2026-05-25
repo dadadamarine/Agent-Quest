@@ -12,8 +12,8 @@ const RUN_PIXELS_PER_CYCLE = 60;
 
 /** Truncation caps — short so labels stay inside the sprite's visual footprint. */
 const NAME_MAX_CHARS = 18;
-const TASK_MAX_CHARS = 22;
-const ACTIVITY_MSG_MAX_CHARS = 22;
+const TASK_MAX_CHARS = 44;
+const ACTIVITY_MSG_MAX_CHARS = 44;
 
 const ACTIVITY_COLOR: Record<AgentActivity, string> = {
   idle:      '#888888',
@@ -32,8 +32,8 @@ const ERROR_WINDOW_MS = 90 * 1000;
 
 const LABEL_BG = 'rgba(0,0,0,0.65)';
 const LABEL_PAD = { x: 4, y: 2 };
-const BUBBLE_TASK_COLOR = '#3D1F00';
-const BUBBLE_MSG_COLOR = '#6B4226';
+const BUBBLE_TASK_COLOR = '#3D1F00';   // user command — dark brown, dominant
+const BUBBLE_MSG_COLOR = '#8C6A4A';   // system feedback — mid brown, recessive
 const INDEX_COLOR = '#F5E6C8';
 
 const HALO_TEXTURE_KEY = 'hero-selection-halo';
@@ -144,7 +144,7 @@ export class HeroSprite {
     // Above-head bubble — sits right at the head so the bubble's tail looks
     // like it grows out of the sprite. The gap between sprite and bubble was
     // ~16 px before; pulling it in to ~2 px reads as direct speech.
-    this.activityMsgOffsetY = -(halfH - 16);
+    this.activityMsgOffsetY = -(halfH - 24);
     this.taskOffsetY = this.activityMsgOffsetY - 13;
 
     // Below-feet name (2 lines). Tiny Swords CC0 sprites have ~8 px of
@@ -205,17 +205,20 @@ export class HeroSprite {
     this.bubbleBg.setVisible(false);
 
     this.taskText = addCrispText(scene, x, y + this.taskOffsetY, '', {
-      fontSize: '10px',
+      fontSize: '11px',
+      fontStyle: 'bold',
       color: BUBBLE_TASK_COLOR,
       fontFamily: "'Fira Code', monospace",
       align: 'center',
+      wordWrap: { width: 140 },
     }).setOrigin(0.5, 1).setVisible(false);
 
     this.activityMsgText = addCrispText(scene, x, y + this.activityMsgOffsetY, '', {
-      fontSize: '10px',
+      fontSize: '9px',
       color: BUBBLE_MSG_COLOR,
       fontFamily: "'Fira Code', monospace",
       align: 'center',
+      wordWrap: { width: 140 },
     }).setOrigin(0.5, 1).setVisible(false);
 
     // Index marker — sits to the left of the name on the same row. `setOrigin(1, 0)`
