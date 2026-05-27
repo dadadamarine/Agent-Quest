@@ -52,7 +52,7 @@ export class Building {
     // EDITING, etc.) instead of the building's proper name. Cleaner for PiP.
     const labelY = def.y - this.image.displayHeight - 8;
     this.label = addCrispText(scene, def.x, labelY, def.activity.toUpperCase(), {
-      fontSize: '13px',
+      fontSize: '17px',
       fontStyle: '600',
       color: '#F5E6C8',
       fontFamily: "'Cinzel', serif",
