@@ -55,10 +55,9 @@ export class Building {
       fontSize: '17px',
       fontStyle: '600',
       color: '#F5E6C8',
-      fontFamily: "'Cinzel', serif",
-      stroke: '#000000',
-      strokeThickness: 2,
-      shadow: { offsetX: 0, offsetY: 1, color: '#000', blur: 3, fill: true },
+      fontFamily: "'Fira Code', monospace",
+      backgroundColor: 'rgba(0,0,0,0.6)',
+      padding: { x: 6, y: 3 },
     }).setOrigin(0.5, 1).setDepth(this.doorY + 0.1);
   }
 }
