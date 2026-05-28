@@ -3,6 +3,16 @@ import { mkdtempSync, mkdirSync, writeFileSync, appendFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { CodexProvider } from './codex-provider';
+import { fsWatchDeliversEvents } from '../watchers/fs-watch-probe';
+
+// fs.watch event delivery is environment-dependent (sandboxes / some CI suppress
+// it). The fs.watch integration test runs only where events fire; the manual-scan
+// tests cover the logic in every environment.
+const FS_WATCH = await fsWatchDeliversEvents();
+const watchTest = FS_WATCH ? test : test.skip;
+if (!FS_WATCH) {
+  console.warn('[codex-provider.test] fs.watch events unavailable here — skipping fs.watch integration test');
+}
 
 function makeSessionMeta(id: string, cwd: string): string {
   return JSON.stringify({
@@ -201,7 +211,7 @@ test('CodexProvider.scan is re-entrancy-safe under overlapping invocations', asy
   p.stop();
 });
 
-test('CodexProvider reacts to appends via fs.watch (no manual scan)', async () => {
+watchTest('CodexProvider reacts to appends via fs.watch (no manual scan)', async () => {
   const root = mkdtempSync(join(tmpdir(), 'codex-test-'));
   const day = join(root, 'sessions', '2026', '04', '23');
   mkdirSync(day, { recursive: true });
@@ -234,7 +244,7 @@ test('CodexProvider reacts to appends via fs.watch (no manual scan)', async () =
   p.stop();
 });
 
-test('CodexProvider stops emitting after stop()', async () => {
+test('CodexProvider emits nothing after stop(), even if a later scan runs', async () => {
   const root = mkdtempSync(join(tmpdir(), 'codex-test-'));
   const day = join(root, 'sessions', '2026', '04', '23');
   mkdirSync(day, { recursive: true });
@@ -248,7 +258,7 @@ test('CodexProvider stops emitting after stop()', async () => {
   const p = new CodexProvider({
     codexRoot: root,
     scanIntervalMs: 60_000,
-    watchDebounceMs: 20,
+    watchEnabled: false, // deterministic — drive the post-stop scan manually
   });
 
   await p.start({
@@ -258,9 +268,8 @@ test('CodexProvider stops emitting after stop()', async () => {
 
   p.stop();
   appendFileSync(file, makeTaskComplete() + '\n');
-  await Bun.sleep(150);
-
-  expect(updates.length).toBe(0); // watcher closed, no scheduled scan
+  await (p as unknown as { scan: () => Promise<void> }).scan(); // must not emit after stop
+  expect(updates.length).toBe(0);
 });
 
 test('CodexProvider holds back partial trailing line until it is completed', async () => {
@@ -307,6 +316,48 @@ test('CodexProvider holds back partial trailing line until it is completed', asy
   // Now the previously partial event must have been picked up.
   expect(updates.length).toBe(2);
   expect((updates[1] as { events: unknown[] }).events.length).toBe(1);
+
+  p.stop();
+});
+
+test('CodexProvider holds back a partial trailing line on first discovery (no re-delivery)', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'codex-test-'));
+  const day = join(root, 'sessions', '2026', '04', '23');
+  mkdirSync(day, { recursive: true });
+  const file = join(day, 'rollout-first-partial.jsonl');
+  // Rollout already exists, caught mid-write (last line complete JSON but no '\n'),
+  // BEFORE the provider's first scan.
+  const trailing = makeTaskComplete(); // valid JSON, but no trailing newline
+  writeFileSync(
+    file,
+    makeSessionMeta('first-partial', '/proj') + '\n' + makeUserMessage('hi') + '\n' + trailing,
+  );
+
+  const starts: unknown[] = [];
+  const updates: unknown[] = [];
+  const p = new CodexProvider({
+    codexRoot: root,
+    watchEnabled: false, // deterministic — drive scans manually
+    scanIntervalMs: 60_000,
+  });
+
+  await p.start({
+    onSessionStart: (payload) => { starts.push(payload); },
+    onSessionEvents: (payload) => { updates.push(payload); },
+  });
+
+  // First sight delivers only the complete lines; the unterminated trailing line
+  // is held back, not delivered yet.
+  expect(starts.length).toBe(1);
+  expect((starts[0] as { events: unknown[] }).events.length).toBe(1); // user_message only
+
+  // Complete the trailing line.
+  appendFileSync(file, '\n');
+  await (p as unknown as { scan: () => Promise<void> }).scan();
+
+  // The trailing line is delivered exactly once now — never twice.
+  expect(updates.length).toBe(1);
+  expect((updates[0] as { events: unknown[] }).events.length).toBe(1);
 
   p.stop();
 });

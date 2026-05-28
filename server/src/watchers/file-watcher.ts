@@ -10,6 +10,10 @@ export interface WatcherCallbacks {
   onNewSession: (
     sessionId: string,
     projectPath: string,
+    /** Complete-line content the watcher already read (partial trailing line
+     * held back). The provider parses this rather than re-reading, so its parse
+     * extent matches the byte offset the watcher recorded — no re-delivery. */
+    completeContent: string,
     configDir: string,
     subagentCtx: SubagentContext,
   ) => void;
@@ -47,6 +51,7 @@ export class FileWatcher {
   private readonly watchEnabled: boolean;
   private scheduler: ScanScheduler | null = null;
   private fsWatchers: FSWatcher[] = [];
+  private stopped = false;
 
   constructor(opts: WatcherOptions) {
     this.callbacks = opts;
@@ -82,6 +87,7 @@ export class FileWatcher {
   }
 
   async start(): Promise<void> {
+    this.stopped = false;
     if (this.claudeDirs.length === 0) {
       this.claudeDirs = await FileWatcher.autoDiscoverDirs();
     }
@@ -135,6 +141,7 @@ export class FileWatcher {
   }
 
   stop(): void {
+    this.stopped = true;
     this.scheduler?.stop();
     this.scheduler = null;
     for (const fsWatcher of this.fsWatchers) {
@@ -218,6 +225,8 @@ export class FileWatcher {
   ): Promise<void> {
     const fileStat = await stat(filePath).catch(() => null);
     if (fileStat === null) return;
+    // A stop() that lands during an in-flight scan must not emit afterwards.
+    if (this.stopped) return;
 
     const previousSize = this.fileSizes.get(filePath);
     const currentSize = fileStat.size;
@@ -231,9 +240,16 @@ export class FileWatcher {
         this.fileSizes.set(filePath, currentSize);
         return;
       }
-      // New session file
-      this.fileSizes.set(filePath, currentSize);
-      this.callbacks.onNewSession(sessionId, filePath, claudeDir, subagentCtx);
+      // New session file. Read once and hand the provider only the complete
+      // lines, recording exactly those bytes. A session discovered mid-write
+      // would otherwise either lose its truncated trailing line (if we marked
+      // the full size consumed) or re-deliver a complete-but-unterminated line
+      // (if the provider re-read the whole file while we held the bytes back).
+      const text = await Bun.file(filePath).text();
+      const lastNewlineIndex = text.lastIndexOf('\n');
+      const complete = lastNewlineIndex === -1 ? '' : text.slice(0, lastNewlineIndex + 1);
+      this.fileSizes.set(filePath, Buffer.byteLength(complete, 'utf8'));
+      this.callbacks.onNewSession(sessionId, filePath, complete, claudeDir, subagentCtx);
     } else if (currentSize > previousSize) {
       // File grew — read only the new bytes
       const fd = Bun.file(filePath);

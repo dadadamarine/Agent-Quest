@@ -34,9 +34,8 @@ export class ClaudeProvider implements SessionProvider {
       watchDebounceMs: this.opts.watchDebounceMs,
       watchEnabled: this.opts.watchEnabled,
 
-      onNewSession: async (sessionId, filePath, configDir, subagentCtx) => {
-        const contents = await Bun.file(filePath).text();
-        const events = parseSessionFile(contents);
+      onNewSession: async (sessionId, filePath, completeContent, configDir, subagentCtx) => {
+        const events = parseSessionFile(completeContent);
         const nameOverride = subagentCtx.isSubagent
           ? await resolveSubagentLabel(filePath).catch(() => undefined)
           : undefined;

@@ -50,7 +50,12 @@ export class ScanScheduler {
     }, this.pollMs);
   }
 
-  /** Request a scan in response to an fs.watch event (leading-edge debounced). */
+  /**
+   * Request a scan in response to an fs.watch event. Trailing-edge debounced:
+   * the first request arms a timer and the scan runs `debounceMs` later;
+   * further requests within that window are coalesced into the same run, so a
+   * burst of file writes produces a single scan.
+   */
   request(): void {
     if (this.stopped || this.debounceTimer !== null) return;
     this.debounceTimer = setTimeout(() => {

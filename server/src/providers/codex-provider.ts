@@ -116,9 +116,10 @@ export class CodexProvider implements SessionProvider {
     return this.rootExists ? [this.codexRoot] : [];
   }
 
-  /** Guarded scan entry point. Routed through the scheduler so manual callers
-   * (and tests) share the same re-entrancy guard as fs.watch and the poll. */
-  async scan(): Promise<void> {
+  /** Guarded scan entry point. Routed through the scheduler so the fs.watch
+   * fast path, the safety poll, and tests all share one re-entrancy guard.
+   * Kept off the public SessionProvider surface — tests reach it via cast. */
+  private async scan(): Promise<void> {
     if (this.scheduler !== null) {
       await this.scheduler.scanNow();
       return;
@@ -158,13 +159,27 @@ export class CodexProvider implements SessionProvider {
         // Malformed rollout (no session_meta as first line) — skip for now, recheck next poll.
         return;
       }
+      // Parse only complete lines and track only their byte extent. fs.watch can
+      // discover a rollout while Codex is still writing its final line; parsing
+      // the whole file but recording the full size would either lose a truncated
+      // line or re-deliver a complete-but-unterminated one once it gets its '\n'.
+      // (No newline at all → fall back to s.size; the lone first line already
+      // parsed cleanly enough to yield meta.)
+      const lastCompleteNewline = contents.lastIndexOf('\n');
+      const completePortion = lastCompleteNewline === -1
+        ? contents
+        : contents.slice(0, lastCompleteNewline + 1);
+      const trackedSize = lastCompleteNewline === -1
+        ? s.size
+        : Buffer.byteLength(completePortion, 'utf8');
       const events: ParsedEvent[] = [];
-      for (const line of contents.split('\n')) {
+      for (const line of completePortion.split('\n')) {
         if (line.trim() === '') continue;
         const ev = parseCodexLine(line, meta.id, meta.cwd);
         if (ev !== null) events.push(ev);
       }
-      this.tracked.set(filePath, { sessionId: meta.id, sessionCwd: meta.cwd, size: s.size });
+      this.tracked.set(filePath, { sessionId: meta.id, sessionCwd: meta.cwd, size: trackedSize });
+      if (this.handlers === null) return; // stop() landed mid-scan — don't emit
       await handlers.onSessionStart({
         source: this.source,
         sessionId: meta.id,
@@ -213,6 +228,7 @@ export class CodexProvider implements SessionProvider {
     tracked.size += Buffer.byteLength(complete, 'utf8');
 
     if (events.length === 0) return;
+    if (this.handlers === null) return; // stop() landed mid-scan — don't emit
 
     handlers.onSessionEvents({
       source: this.source,
