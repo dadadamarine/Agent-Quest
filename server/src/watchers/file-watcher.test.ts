@@ -153,6 +153,30 @@ test('FileWatcher emits nothing after stop(), even if a later scan runs', async 
   expect(updates.length).toBe(0);
 });
 
+test('FileWatcher gates the rest of a scan once stop() lands mid-scan', async () => {
+  const { claudeDir, projectPath } = makeClaudeDir();
+  // Several files so the scan still has work left after the first emit.
+  for (let i = 0; i < 4; i++) {
+    writeFileSync(join(projectPath, `session-m${i}.jsonl`), makeToolUseLine('Read') + '\n');
+  }
+
+  let newSessionCount = 0;
+  let watcher: FileWatcher | null = null;
+  watcher = new FileWatcher({
+    claudeDirs: [claudeDir],
+    pollIntervalMs: 60_000,
+    watchEnabled: false,
+    onNewSession: () => {
+      newSessionCount++;
+      watcher?.stop(); // stop while the initial scan is still iterating files
+    },
+    onSessionUpdate: () => {},
+  });
+
+  await watcher.start();
+  expect(newSessionCount).toBe(1); // remaining files are gated by the stopped guard
+});
+
 // --- fs.watch integration tests (skipped where OS events are unavailable) ---
 
 watchTest('FileWatcher reacts to appends via fs.watch (no manual scan)', async () => {

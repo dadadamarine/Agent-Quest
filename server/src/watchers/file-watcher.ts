@@ -249,6 +249,7 @@ export class FileWatcher {
       const lastNewlineIndex = text.lastIndexOf('\n');
       const complete = lastNewlineIndex === -1 ? '' : text.slice(0, lastNewlineIndex + 1);
       this.fileSizes.set(filePath, Buffer.byteLength(complete, 'utf8'));
+      if (this.stopped) return; // stop() landed during the awaited read — don't emit
       this.callbacks.onNewSession(sessionId, filePath, complete, claudeDir, subagentCtx);
     } else if (currentSize > previousSize) {
       // File grew — read only the new bytes
@@ -268,6 +269,7 @@ export class FileWatcher {
       // Advance by the BYTE length of the processed chunk (not char length) so
       // the offset stays correct for multi-byte UTF-8 content.
       this.fileSizes.set(filePath, previousSize + Buffer.byteLength(complete, 'utf8'));
+      if (this.stopped) return; // stop() landed during the awaited read — don't emit
       this.callbacks.onSessionUpdate(sessionId, filePath, complete, claudeDir, subagentCtx);
     }
   }
