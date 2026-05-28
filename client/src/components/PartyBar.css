@@ -121,6 +121,34 @@
   .partybar-agent.selected { animation: none; box-shadow: 0 0 12px rgba(91, 163, 245, 0.5); }
 }
 
+/* Sub-agent rows: indent + a purple branch line + faint tint so the
+   parent -> child hierarchy reads as a tree in the full-mode list. */
+.partybar.mode-full .partybar-agent.subrow {
+  padding-left: 26px;
+  border-left: 3px solid rgba(155, 114, 207, 0.75);
+  background: rgba(155, 114, 207, 0.10);
+}
+.partybar.mode-full .partybar-agent.subrow:hover {
+  background: rgba(155, 114, 207, 0.20);
+}
+.partybar-agent.subrow .partybar-index {
+  color: #c8a8ff;
+}
+/* Sub-agents read smaller overall — shrink the row's text + index badge too. */
+.partybar.mode-full .partybar-agent.subrow { padding-top: 4px; padding-bottom: 4px; }
+.partybar.mode-full .partybar-agent.subrow .partybar-agent-name { font-size: 12px; }
+.partybar.mode-full .partybar-agent.subrow .partybar-activity { font-size: 10px; }
+.partybar-agent.subrow .partybar-index {
+  min-width: 16px;
+  height: 16px;
+  font-size: 10px;
+  line-height: 16px;
+}
+/* Collapsed icon strip: a left branch accent is enough to mark a sub-agent. */
+.partybar.mode-icons .partybar-agent.subrow {
+  border-left: 3px solid rgba(155, 114, 207, 0.75);
+}
+
 .partybar.mode-icons .partybar-agent {
   justify-content: center;
   padding: 6px 0;

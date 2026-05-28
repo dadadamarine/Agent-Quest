@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { HeroAvatar } from './HeroAvatar';
 import { usePartyPrefs } from '../hooks/usePartyPrefs';
 import { HERO_LABEL_COLOR, SOURCE_BADGE_COLOR, modelBadge, type AgentState } from '../types/agent';
+import { computePartyOrder } from '../presentation/agentPresentation';
 import './PartyBar.css';
 
 interface PartyBarProps {
@@ -14,24 +15,18 @@ interface PartyBarProps {
 const AVATAR_SIZE = 66;
 const FLASH_DURATION_MS = 400;
 
-const STATUS_ORDER: Record<AgentState['status'], number> = {
-  active: 0,
-  waiting: 1,
-  idle: 2,
-  error: 3,
-  completed: 4,
-};
-
 interface PartyRowProps {
   agent: AgentState;
-  index: number;
+  index: string;
+  /** Hierarchy depth (0 = top-level, 1 = sub-agent). Drives the row indent. */
+  depth: number;
   mode: 'full' | 'icons';
   isSelected: boolean;
   onClick: () => void;
   showSourceBadge: boolean;
 }
 
-function PartyRow({ agent, index, mode, isSelected, onClick, showSourceBadge }: PartyRowProps) {
+function PartyRow({ agent, index, depth, mode, isSelected, onClick, showSourceBadge }: PartyRowProps) {
   const [flashing, setFlashing] = useState(false);
   const prevSelected = useRef(isSelected);
 
@@ -50,11 +45,15 @@ function PartyRow({ agent, index, mode, isSelected, onClick, showSourceBadge }: 
     `mode-${mode}`,
     isSelected ? 'selected' : '',
     flashing ? 'flashing' : '',
+    depth > 0 ? 'subrow' : '',
   ].filter(Boolean).join(' ');
 
   const title = mode === 'icons'
     ? `${agent.name} · ${agent.currentActivity}`
     : undefined;
+
+  // Sub-agents render smaller than top-level sessions, here and in the village.
+  const avatarSize = depth > 0 ? Math.round(AVATAR_SIZE * 0.7) : AVATAR_SIZE;
 
   return (
     <button
@@ -67,7 +66,7 @@ function PartyRow({ agent, index, mode, isSelected, onClick, showSourceBadge }: 
     >
       <span className="partybar-avatar-wrap">
         <span className="partybar-index" aria-label={`hero ${index}`}>{index}</span>
-        <HeroAvatar agent={agent} size={AVATAR_SIZE} />
+        <HeroAvatar agent={agent} size={avatarSize} />
         <span className={`partybar-status-overlay ${agent.status}`} aria-hidden="true" />
       </span>
       {mode === 'full' && (
@@ -123,10 +122,11 @@ export function PartyBar({ agents, selectedAgentId, onSelectAgent, showSourceBad
   const [prefs, updatePrefs] = usePartyPrefs();
   const mode: 'full' | 'icons' = prefs.foldState;
 
-  // `agents` is the App-level presentation projection — it already excludes
-  // `error` / `waiting`, and only includes `completed` when the TopBar toggle
-  // is on. Sort by status (active first) so completed rows land at the bottom.
-  const sorted = [...agents].sort((a, b) => STATUS_ORDER[a.status] - STATUS_ORDER[b.status]);
+  // `agents` is the App-level presentation projection: `active` / `idle` /
+  // `waiting` always pass, `completed` only when the TopBar toggle is on, and
+  // `error` is filtered out. computePartyOrder status-sorts the backbone (active
+  // first) and groups each parent's sub-agents right after it with "1-a" labels.
+  const entries = computePartyOrder(agents);
   const activeCount = agents.filter((a) => a.status === 'active').length;
   const idleCount = agents.filter((a) => a.status === 'idle').length;
   const completedCount = agents.filter((a) => a.status === 'completed').length;
@@ -148,7 +148,7 @@ export function PartyBar({ agents, selectedAgentId, onSelectAgent, showSourceBad
             {completedCount > 0 ? `, ${completedCount} done` : ''})
           </span>
         ) : (
-          <span className="partybar-title-compact">{sorted.length}</span>
+          <span className="partybar-title-compact">{entries.length}</span>
         )}
         <button
           type="button"
@@ -160,11 +160,12 @@ export function PartyBar({ agents, selectedAgentId, onSelectAgent, showSourceBad
       </div>
 
       <div className="partybar-list">
-        {sorted.map((agent, i) => (
+        {entries.map(({ agent, label, depth }) => (
           <PartyRow
             key={agent.id}
             agent={agent}
-            index={i + 1}
+            index={label}
+            depth={depth}
             mode={mode}
             isSelected={agent.id === selectedAgentId}
             onClick={() => handleClick(agent.id)}

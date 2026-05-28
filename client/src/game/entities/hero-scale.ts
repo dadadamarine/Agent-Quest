@@ -5,10 +5,10 @@
 
 /**
  * Multiplicative scale applied to a sub-agent sprite relative to a regular
- * hero. 0.7 is small enough to read as "companion / helper" without making
- * the sprite illegible.
+ * hero. 0.6 reads clearly as "companion / helper" — smaller than a full
+ * session — while staying legible.
  */
-export const SUBAGENT_SCALE_FACTOR = 0.7;
+export const SUBAGENT_SCALE_FACTOR = 0.6;
 
 /**
  * Effective sprite scale for a hero, given the theme's base hero scale and

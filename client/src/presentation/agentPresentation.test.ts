@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'bun:test';
 import type { AgentState } from '../types/agent';
-import { computeShowSourceBadge, filterAgentsForPresentation } from './agentPresentation';
+import { computeShowSourceBadge, filterAgentsForPresentation, computePartyOrder } from './agentPresentation';
 
 function makeAgent(overrides: Partial<AgentState>): AgentState {
   const base: AgentState = {
@@ -123,5 +123,113 @@ describe('computeShowSourceBadge', () => {
       makeAgent({ id: 'x1', source: 'codex', status: 'active' }),
     ];
     expect(computeShowSourceBadge(agents)).toBe(true);
+  });
+});
+
+describe('computePartyOrder', () => {
+  const labelsById = (agents: AgentState[]) =>
+    new Map(computePartyOrder(agents).map((e) => [e.agent.id, e.label]));
+
+  it('returns empty array for empty input', () => {
+    expect(computePartyOrder([])).toEqual([]);
+  });
+
+  it('numbers a single top-level agent as "1"', () => {
+    const labels = labelsById([makeAgent({ id: 'p1' })]);
+    expect(labels.get('p1')).toBe('1');
+  });
+
+  it('numbers top-level agents 1,2,3 in status order (active before idle)', () => {
+    const entries = computePartyOrder([
+      makeAgent({ id: 'idle1', status: 'idle' }),
+      makeAgent({ id: 'act1', status: 'active' }),
+      makeAgent({ id: 'act2', status: 'active' }),
+    ]);
+    // active agents sort before idle, so they take 1 and 2.
+    const labels = new Map(entries.map((e) => [e.agent.id, e.label]));
+    expect(labels.get('idle1')).toBe('3');
+    expect(new Set([labels.get('act1'), labels.get('act2')])).toEqual(new Set(['1', '2']));
+  });
+
+  it('sub-agents inherit the parent number with a letter suffix (1-a, 1-b)', () => {
+    const labels = labelsById([
+      makeAgent({ id: 'parent', status: 'active' }),
+      makeAgent({ id: 'agent-b', status: 'active', isSubagent: true, parentSessionId: 'parent' }),
+      makeAgent({ id: 'agent-a', status: 'active', isSubagent: true, parentSessionId: 'parent' }),
+    ]);
+    expect(labels.get('parent')).toBe('1');
+    // Letters follow stable id sort: agent-a -> a, agent-b -> b.
+    expect(labels.get('agent-a')).toBe('1-a');
+    expect(labels.get('agent-b')).toBe('1-b');
+  });
+
+  it('places each parent\'s sub-agents immediately after it', () => {
+    const order = computePartyOrder([
+      makeAgent({ id: 'p1', status: 'active' }),
+      makeAgent({ id: 'p2', status: 'active' }),
+      makeAgent({ id: 'agent-s', status: 'active', isSubagent: true, parentSessionId: 'p1' }),
+    ]).map((e) => `${e.agent.id}:${e.label}`);
+    // p1, then its sub-agent, then p2.
+    expect(order).toEqual(['p1:1', 'agent-s:1-a', 'p2:2']);
+  });
+
+  it('gives an orphan sub-agent (absent parent) its own backbone number', () => {
+    const labels = labelsById([
+      makeAgent({ id: 'p1', status: 'active' }),
+      makeAgent({ id: 'agent-x', status: 'active', isSubagent: true, parentSessionId: 'missing' }),
+    ]);
+    expect(labels.get('p1')).toBe('1');
+    expect(labels.get('agent-x')).toBe('2');
+  });
+
+  it('is deterministic for the same input', () => {
+    const agents: AgentState[] = [
+      makeAgent({ id: 'parent', status: 'active' }),
+      makeAgent({ id: 'agent-a', status: 'active', isSubagent: true, parentSessionId: 'parent' }),
+    ];
+    expect(computePartyOrder(agents)).toEqual(computePartyOrder(agents));
+  });
+
+  it('tags depth 0 for top-level agents and depth 1 for sub-agents', () => {
+    const byId = new Map(
+      computePartyOrder([
+        makeAgent({ id: 'parent', status: 'active' }),
+        makeAgent({ id: 'agent-a', status: 'active', isSubagent: true, parentSessionId: 'parent' }),
+      ]).map((e) => [e.agent.id, e.depth]),
+    );
+    expect(byId.get('parent')).toBe(0);
+    expect(byId.get('agent-a')).toBe(1);
+  });
+
+  it('rolls sibling letters past z (27th sub-agent is "1-aa")', () => {
+    const parent = makeAgent({ id: 'parent', status: 'active' });
+    // 27 sub-agents with zero-padded ids so lexicographic sort == creation order.
+    const subs = Array.from({ length: 27 }, (_, i) =>
+      makeAgent({
+        id: `agent-${String(i).padStart(2, '0')}`,
+        status: 'active',
+        isSubagent: true,
+        parentSessionId: 'parent',
+      }),
+    );
+    const labels = labelsById([parent, ...subs]);
+    expect(labels.get('agent-00')).toBe('1-a');
+    expect(labels.get('agent-25')).toBe('1-z');
+    expect(labels.get('agent-26')).toBe('1-aa');
+  });
+
+  it('never drops a nested grandchild — its parent is a sub-agent, so it gets its own number', () => {
+    // parent(top) -> child(sub) -> grandchild(sub whose parent is the child).
+    // The grandchild cannot attach (its parent is itself a sub-agent), so it
+    // must fall back to the numbered backbone rather than vanish.
+    const labels = labelsById([
+      makeAgent({ id: 'parent', status: 'active' }),
+      makeAgent({ id: 'agent-child', status: 'active', isSubagent: true, parentSessionId: 'parent' }),
+      makeAgent({ id: 'agent-grand', status: 'active', isSubagent: true, parentSessionId: 'agent-child' }),
+    ]);
+    expect(labels.get('parent')).toBe('1');
+    expect(labels.get('agent-child')).toBe('1-a');
+    // grandchild present (not dropped) with a plain backbone number.
+    expect(labels.get('agent-grand')).toBe('2');
   });
 });

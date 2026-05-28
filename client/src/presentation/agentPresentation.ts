@@ -56,3 +56,90 @@ export function computeShowSourceBadge(agents: AgentState[]): boolean {
   }
   return false;
 }
+
+const PARTY_STATUS_ORDER: Record<AgentState['status'], number> = {
+  active: 0,
+  waiting: 1,
+  idle: 2,
+  error: 3,
+  completed: 4,
+};
+
+export interface PartyEntry {
+  agent: AgentState;
+  /**
+   * Display label. Top-level agents get a plain number ("1", "2", …).
+   * A sub-agent inherits its parent's number with a letter suffix
+   * ("1-a", "1-b", …) — that shared number is the only cue that ties it to
+   * its parent (no connector line, no forced clustering).
+   */
+  label: string;
+  /**
+   * Hierarchy depth: 0 for a top-level agent, 1 for a sub-agent grouped under
+   * its parent. The Party Bar indents rows by depth so the parent → child
+   * relationship reads as a tree.
+   */
+  depth: number;
+}
+
+/** 0 -> "a", 1 -> "b", … 25 -> "z", 26 -> "aa". */
+function siblingLetter(index: number): string {
+  let label = '';
+  let n = index;
+  do {
+    label = String.fromCharCode(97 + (n % 26)) + label;
+    n = Math.floor(n / 26) - 1;
+  } while (n >= 0);
+  return label;
+}
+
+/**
+ * Order and label agents for the Party Bar, the hero index marker, and the
+ * Activity Feed so all three surfaces agree.
+ *
+ * Top-level agents (and orphan sub-agents whose parent isn't in this list) form
+ * the numbered backbone, status-sorted and numbered 1, 2, 3…. Each parent's
+ * present sub-agents are grouped immediately after it and labelled
+ * `<parentNumber>-<letter>` in stable id order (1-a, 1-b, …).
+ */
+export function computePartyOrder(agents: AgentState[]): PartyEntry[] {
+  const byId = new Map(agents.map((a) => [a.id, a] as const));
+  // A sub-agent is "attached" only when its parent is present AND is itself a
+  // top-level agent. This guarantees every agent is emitted exactly once: a
+  // sub-agent whose parent is missing, or whose parent is itself a sub-agent
+  // (nested), falls back into the numbered backbone instead of being dropped.
+  const isAttachedSub = (a: AgentState): boolean => {
+    if (!a.isSubagent || a.parentSessionId === undefined) return false;
+    const parent = byId.get(a.parentSessionId);
+    return parent !== undefined && !parent.isSubagent;
+  };
+
+  const backbone = agents
+    .filter((a) => !isAttachedSub(a))
+    .sort((x, y) => PARTY_STATUS_ORDER[x.status] - PARTY_STATUS_ORDER[y.status]);
+
+  const childrenByParent = new Map<string, AgentState[]>();
+  for (const a of agents) {
+    if (!isAttachedSub(a)) continue;
+    const parentId = a.parentSessionId as string;
+    const list = childrenByParent.get(parentId);
+    if (list === undefined) childrenByParent.set(parentId, [a]);
+    else list.push(a);
+  }
+  for (const list of childrenByParent.values()) {
+    list.sort((x, y) => x.id.localeCompare(y.id));
+  }
+
+  const entries: PartyEntry[] = [];
+  backbone.forEach((parent, i) => {
+    const num = String(i + 1);
+    entries.push({ agent: parent, label: num, depth: 0 });
+    const kids = childrenByParent.get(parent.id);
+    if (kids !== undefined) {
+      kids.forEach((kid, k) => {
+        entries.push({ agent: kid, label: `${num}-${siblingLetter(k)}`, depth: 1 });
+      });
+    }
+  });
+  return entries;
+}
