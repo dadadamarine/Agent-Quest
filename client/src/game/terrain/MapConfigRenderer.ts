@@ -93,7 +93,7 @@ export function renderMapConfig(
   return { base, terrain, paths };
 }
 
-function drawPath(
+export function drawPath(
   scene: Phaser.Scene,
   container: Phaser.GameObjects.Container,
   path: PathSegment,

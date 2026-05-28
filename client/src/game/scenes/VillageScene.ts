@@ -5,7 +5,7 @@ import { Landmark } from '../entities/Landmark';
 import { HeroSprite } from '../entities/HeroSprite';
 import { BUILDING_DEFS, LANDMARK_DEFS, VILLAGE_GATE, WORLD_WIDTH, WORLD_HEIGHT, getBuildingForActivity } from '../data/building-layout';
 import { TerrainRenderer } from '../terrain/TerrainRenderer';
-import { renderMapConfig } from '../terrain/MapConfigRenderer';
+import { renderMapConfig, drawPath } from '../terrain/MapConfigRenderer';
 import { ensureAssetsLoaded } from '../data/asset-loader';
 import { buildRoadNetworkFromPaths, resetRoadNetwork } from '../data/road-network';
 import { NpcSprite } from '../entities/NpcSprite';
@@ -595,6 +595,23 @@ export class VillageScene extends Phaser.Scene {
   }
 
   private spawnLandmarks(): void {
+    // Connector roads first, on the same ground layer (depth -400) the MapConfig
+    // paths use, so they sit behind every structure, NPC, and hero. These are
+    // decorative only — landmarks are not part of the hero pathfinding graph.
+    let roadContainer: Phaser.GameObjects.Container | null = null;
+    for (const def of LANDMARK_DEFS) {
+      if (def.connector === undefined) continue;
+      if (roadContainer === null) {
+        roadContainer = this.add.container(0, 0).setDepth(-400);
+      }
+      drawPath(this, roadContainer, {
+        id: `${def.id}-connector`,
+        points: def.connector.points,
+        width: def.connector.width,
+        style: def.connector.style,
+      });
+    }
+
     for (const def of LANDMARK_DEFS) {
       this.landmarks.push(new Landmark(this, def));
     }

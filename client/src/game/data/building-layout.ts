@@ -68,12 +68,27 @@ export function getBuildingForActivity(activity: AgentActivity): BuildingDef {
   return building ?? BUILDING_DEFS.find((b) => b.activity === 'idle')!;
 }
 
+/** Road styles shared with the editor's PathSegment palette. */
+export type RoadStyle = 'main' | 'secondary' | 'trail' | 'plaza';
+
+/**
+ * A decorative road that visually ties a landmark into the village. It is drawn
+ * behind the structures and is NOT part of the hero pathfinding graph — heroes
+ * never walk to landmarks, so the connector exists for visual hierarchy only.
+ * The last point should sit at the landmark base so the road meets the structure.
+ */
+export interface LandmarkConnector {
+  points: Array<{ x: number; y: number }>;
+  width: number;
+  style: RoadStyle;
+}
+
 /**
  * A landmark is a fixed structure that exists for meaning, not for activity
  * routing. Unlike {@link BuildingDef} it has no `activity` — heroes never walk
  * to it, so it is deliberately excluded from {@link getBuildingForActivity}.
  * `seats` names the C-LEVEL roles the structure is reserved for; the renderer
- * lays out one marker per seat.
+ * lays out one marker per seat. `connector` is an optional decorative road.
  */
 export interface LandmarkDef {
   id: string;
@@ -84,6 +99,7 @@ export interface LandmarkDef {
   scale: number;
   description: string;
   seats: string[];
+  connector?: LandmarkConnector;
 }
 
 /**
@@ -107,5 +123,16 @@ export const LANDMARK_DEFS: LandmarkDef[] = [
     scale: 0.6,
     description: 'The C-LEVEL council — where the CEO, CFO, CSO, and Architect preside',
     seats: ['CEO', 'CFO', 'CSO', 'Architect'],
+    // Ceremonial avenue straight up the central axis from the plaza hub to the
+    // council base, completing the south→north hierarchy. Endpoint tracks the
+    // council position above (1400, 480) — kept in sync by a unit test.
+    connector: {
+      points: [
+        { x: PLAZA.x, y: PLAZA.y },
+        { x: 1400, y: 480 },
+      ],
+      width: 48,
+      style: 'main',
+    },
   },
 ];
