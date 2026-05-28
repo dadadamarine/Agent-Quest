@@ -7,6 +7,7 @@ import {
   filterByAgent, getAgentNameFallback, categorizeEntry, detectCategories,
   type ActionFilter,
 } from './activityFeedUtils';
+import { computePartyOrder } from '../presentation/agentPresentation';
 import './ActivityFeed.css';
 
 interface ActivityFeedProps {
@@ -57,13 +58,9 @@ export function ActivityFeed({ log, agents, selectedAgentId, onSelectAgent, show
     return m;
   }, [agents]);
 
-  const STATUS_ORDER: Record<AgentState['status'], number> = {
-    active: 0, waiting: 1, idle: 2, error: 3, completed: 4,
-  };
   const agentIndexMap = useMemo(() => {
-    const sorted = [...agents].sort((a, b) => STATUS_ORDER[a.status] - STATUS_ORDER[b.status]);
-    const m = new Map<string, number>();
-    sorted.forEach((a, i) => m.set(a.id, i + 1));
+    const m = new Map<string, string>();
+    for (const { agent, label } of computePartyOrder(agents)) m.set(agent.id, label);
     return m;
   }, [agents]);
 

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { HeroAvatar } from './HeroAvatar';
 import { usePartyPrefs } from '../hooks/usePartyPrefs';
 import { HERO_LABEL_COLOR, SOURCE_BADGE_COLOR, modelBadge, type AgentState } from '../types/agent';
+import { computePartyOrder } from '../presentation/agentPresentation';
 import './PartyBar.css';
 
 interface PartyBarProps {
@@ -14,17 +15,9 @@ interface PartyBarProps {
 const AVATAR_SIZE = 66;
 const FLASH_DURATION_MS = 400;
 
-const STATUS_ORDER: Record<AgentState['status'], number> = {
-  active: 0,
-  waiting: 1,
-  idle: 2,
-  error: 3,
-  completed: 4,
-};
-
 interface PartyRowProps {
   agent: AgentState;
-  index: number;
+  index: string;
   mode: 'full' | 'icons';
   isSelected: boolean;
   onClick: () => void;
@@ -125,8 +118,9 @@ export function PartyBar({ agents, selectedAgentId, onSelectAgent, showSourceBad
 
   // `agents` is the App-level presentation projection — it already excludes
   // `error` / `waiting`, and only includes `completed` when the TopBar toggle
-  // is on. Sort by status (active first) so completed rows land at the bottom.
-  const sorted = [...agents].sort((a, b) => STATUS_ORDER[a.status] - STATUS_ORDER[b.status]);
+  // is on. computePartyOrder status-sorts the backbone (active first) and groups
+  // each parent's sub-agents right after it with inherited "1-a" labels.
+  const entries = computePartyOrder(agents);
   const activeCount = agents.filter((a) => a.status === 'active').length;
   const idleCount = agents.filter((a) => a.status === 'idle').length;
   const completedCount = agents.filter((a) => a.status === 'completed').length;
@@ -148,7 +142,7 @@ export function PartyBar({ agents, selectedAgentId, onSelectAgent, showSourceBad
             {completedCount > 0 ? `, ${completedCount} done` : ''})
           </span>
         ) : (
-          <span className="partybar-title-compact">{sorted.length}</span>
+          <span className="partybar-title-compact">{entries.length}</span>
         )}
         <button
           type="button"
@@ -160,11 +154,11 @@ export function PartyBar({ agents, selectedAgentId, onSelectAgent, showSourceBad
       </div>
 
       <div className="partybar-list">
-        {sorted.map((agent, i) => (
+        {entries.map(({ agent, label }) => (
           <PartyRow
             key={agent.id}
             agent={agent}
-            index={i + 1}
+            index={label}
             mode={mode}
             isSelected={agent.id === selectedAgentId}
             onClick={() => handleClick(agent.id)}

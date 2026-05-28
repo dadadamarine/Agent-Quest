@@ -38,18 +38,6 @@ const INDEX_COLOR = '#F5E6C8';
 
 const HALO_TEXTURE_KEY = 'hero-selection-halo';
 
-// Sub-agent marker visuals. Sub-agents render at 0.7x scale, so these markers
-// must be prominent enough to read on a shrunken sprite in a dense village
-// (issue #32: the glow/badge were too faint to notice). The same purple as the
-// connector line (CONNECTOR_COLOR) ties the visual identity together.
-const SUBAGENT_GLOW_COLOR = 0x9b72cf;
-const SUBAGENT_GLOW_WIDTH = 3;
-const SUBAGENT_GLOW_RADIUS_FACTOR = 0.6;
-/** Pulse range driven by the Graphics object alpha (stroke alpha stays 1.0). */
-const SUBAGENT_GLOW_PULSE_MIN = 0.5;
-const SUBAGENT_GLOW_PULSE_MAX = 0.85;
-const SUBAGENT_BADGE_FONT_SIZE = '12px';
-
 function ensureHaloTexture(scene: Phaser.Scene): void {
   if (scene.textures.exists(HALO_TEXTURE_KEY)) return;
   const size = 128;
@@ -113,15 +101,6 @@ export class HeroSprite {
   private selectionTween: Phaser.Tweens.Tween | null = null;
   private selectionHalo: Phaser.GameObjects.Image | null = null;
   private wanderTimer: Phaser.Time.TimerEvent | null = null;
-
-  /**
-   * Sub-agent visual distinction markers. Null for main-session heroes.
-   * - `subagentGlowRing`: pulsing circular outline drawn around the sprite
-   * - `subagentIconText`: small ⚙ badge at the sprite's top-right corner
-   */
-  private subagentGlowRing: Phaser.GameObjects.Graphics | null = null;
-  private subagentIconText: Phaser.GameObjects.Text | null = null;
-  private subagentGlowTween: Phaser.Tweens.Tween | null = null;
 
   /** Grid base position — used for slot repositioning. */
   gridBaseX = 0;
@@ -255,107 +234,6 @@ export class HeroSprite {
 
     this.setBubbleAlpha(1.0);
     this.updateDepth();
-
-    if (isSubagent) {
-      this.initSubagentMarkers();
-    }
-  }
-
-  /**
-   * Create the sub-agent glow ring and gear-icon badge that distinguish
-   * sub-agent sprites from main-session heroes in the village view.
-   *
-   * Called once from the constructor when `isSubagent` is true.
-   * The glow ring pulses via a looping alpha tween so it catches the eye
-   * even in a dense scene. The badge renders as a tiny ⚙ symbol at the
-   * sprite's top-right corner.
-   */
-  private initSubagentMarkers(): void {
-    const radius = this.sprite.displayWidth * SUBAGENT_GLOW_RADIUS_FACTOR;
-
-    // Glow ring — the stroke is always drawn at full alpha; the pulsing
-    // "breathing" effect comes from tweening the Graphics object's alpha
-    // between SUBAGENT_GLOW_PULSE_MIN and _MAX. Keeping the stroke alpha fixed
-    // means the init draw and every per-frame reposition redraw render the ring
-    // at the same brightness (issue #32: they previously diverged — 0.55 vs 1.0).
-    this.subagentGlowRing = this.scene.add.graphics();
-    this.drawSubagentGlowRing(radius);
-
-    this.subagentGlowTween = this.scene.tweens.add({
-      targets: this.subagentGlowRing,
-      alpha: { from: SUBAGENT_GLOW_PULSE_MIN, to: SUBAGENT_GLOW_PULSE_MAX },
-      duration: 1200,
-      yoyo: true,
-      repeat: -1,
-      ease: 'Sine.easeInOut',
-    });
-
-    // Gear-icon badge — small text label at top-right so it reads like a
-    // status indicator without needing a custom texture asset.
-    this.subagentIconText = addCrispText(
-      this.scene,
-      this._x,
-      this._y,
-      '⚙',
-      {
-        fontSize: SUBAGENT_BADGE_FONT_SIZE,
-        color: '#c8a8ff',
-        fontFamily: 'monospace',
-        backgroundColor: 'rgba(20,10,40,0.75)',
-        padding: { x: 2, y: 1 },
-      },
-    ).setOrigin(0, 1);
-
-    // Position markers and depth after creation so they respect the hero's
-    // initial position set in the constructor.
-    this.repositionSubagentMarkers();
-    this.updateSubagentMarkerDepth();
-  }
-
-  /**
-   * Redraw the glow ring graphics at the hero's current screen position.
-   * Called whenever the hero moves or its scale changes.
-   */
-  private drawSubagentGlowRing(radius: number): void {
-    if (this.subagentGlowRing === null) return;
-    // Graphics objects draw in world space — clear and redraw at the current
-    // position. Stroke alpha stays at full; the pulse comes from the object
-    // alpha tween, so this single draw path is the only place the ring is rendered.
-    this.subagentGlowRing.clear();
-    this.subagentGlowRing.lineStyle(SUBAGENT_GLOW_WIDTH, SUBAGENT_GLOW_COLOR, 1);
-    this.subagentGlowRing.strokeCircle(this._x, this._y, radius);
-  }
-
-  /** Move the glow ring and icon badge to the hero's current world position. */
-  private repositionSubagentMarkers(): void {
-    if (this.subagentGlowRing === null && this.subagentIconText === null) return;
-
-    const radius = this.sprite.displayWidth * SUBAGENT_GLOW_RADIUS_FACTOR;
-
-    if (this.subagentGlowRing !== null) {
-      this.drawSubagentGlowRing(radius);
-    }
-
-    if (this.subagentIconText !== null) {
-      // Badge sits at top-right of the sprite footprint.
-      const badgeOffsetX = this.sprite.displayWidth * 0.4;
-      const badgeOffsetY = -(this.sprite.displayHeight * 0.4);
-      this.subagentIconText.setPosition(
-        this._x + badgeOffsetX,
-        this._y + badgeOffsetY,
-      );
-    }
-  }
-
-  /** Sync sub-agent marker depth with the sprite so they render above the ground. */
-  private updateSubagentMarkerDepth(): void {
-    const footY = this._y + this.sprite.displayHeight * 0.5;
-    if (this.subagentGlowRing !== null) {
-      this.subagentGlowRing.setDepth(footY + 0.45);
-    }
-    if (this.subagentIconText !== null) {
-      this.subagentIconText.setDepth(footY + 1.3);
-    }
   }
 
   private setBubbleAlpha(alpha: number): void {
@@ -383,9 +261,6 @@ export class HeroSprite {
     this.updateBubble();
     if (this.selectionHalo !== null) {
       this.selectionHalo.setPosition(x, y);
-    }
-    if (this.isSubagent) {
-      this.repositionSubagentMarkers();
     }
     this.updateDepth();
   }
@@ -537,9 +412,6 @@ export class HeroSprite {
         this.indexText.setPosition(this._x + this.indexOffsetX, this._y + this.indexOffsetY);
         this.updateBubble();
         if (this.selectionHalo !== null) this.selectionHalo.setPosition(this._x, this._y);
-        if (this.isSubagent) {
-          this.repositionSubagentMarkers();
-        }
         this.updateDepth();
       },
       onComplete: () => {
@@ -606,9 +478,6 @@ export class HeroSprite {
     this.activityMsgText.setDepth(footY + 1.1);
     this.indexText.setDepth(footY + 1.2);
     if (this.selectionHalo !== null) this.selectionHalo.setDepth(footY + 0.4);
-    if (this.isSubagent) {
-      this.updateSubagentMarkerDepth();
-    }
   }
 
   /**
@@ -727,13 +596,13 @@ export class HeroSprite {
     this.updateBubble();
   }
 
-  /** Set the party index marker. Pass undefined to hide. */
-  setIndex(index: number | undefined): void {
-    if (index === undefined) {
+  /** Set the party index label (e.g. "1" or "1-a"). Pass undefined to hide. */
+  setIndex(label: string | undefined): void {
+    if (label === undefined) {
       this.indexText.setVisible(false);
       return;
     }
-    this.indexText.setText(String(index));
+    this.indexText.setText(label);
     this.indexText.setVisible(true);
   }
 
@@ -807,9 +676,6 @@ export class HeroSprite {
         if (this.selectionHalo !== null) {
           this.selectionHalo.setPosition(this._x, this._y);
         }
-        if (this.isSubagent) {
-          this.repositionSubagentMarkers();
-        }
         this.updateDepth();
       },
       onComplete: () => {
@@ -842,18 +708,6 @@ export class HeroSprite {
     if (this.selectionHalo !== null) {
       this.selectionHalo.destroy();
       this.selectionHalo = null;
-    }
-    if (this.subagentGlowTween !== null) {
-      this.subagentGlowTween.stop();
-      this.subagentGlowTween = null;
-    }
-    if (this.subagentGlowRing !== null) {
-      this.subagentGlowRing.destroy();
-      this.subagentGlowRing = null;
-    }
-    if (this.subagentIconText !== null) {
-      this.subagentIconText.destroy();
-      this.subagentIconText = null;
     }
     this.sprite.destroy();
     this.nameText.destroy();
