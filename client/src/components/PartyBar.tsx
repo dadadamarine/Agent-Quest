@@ -26,9 +26,6 @@ interface PartyRowProps {
   showSourceBadge: boolean;
 }
 
-/** Pixels each hierarchy level indents a row so sub-agents nest under parents. */
-const DEPTH_INDENT_PX = 18;
-
 function PartyRow({ agent, index, depth, mode, isSelected, onClick, showSourceBadge }: PartyRowProps) {
   const [flashing, setFlashing] = useState(false);
   const prevSelected = useRef(isSelected);
@@ -55,17 +52,10 @@ function PartyRow({ agent, index, depth, mode, isSelected, onClick, showSourceBa
     ? `${agent.name} · ${agent.currentActivity}`
     : undefined;
 
-  // Indent sub-agent rows so the parent → child hierarchy reads as a tree.
-  // Only in `full` mode — the collapsed `icons` strip stays flush.
-  const rowStyle = depth > 0 && mode === 'full'
-    ? { marginLeft: `${depth * DEPTH_INDENT_PX}px` }
-    : undefined;
-
   return (
     <button
       type="button"
       className={classes}
-      style={rowStyle}
       onClick={onClick}
       aria-label={`Select ${agent.name}${showSourceBadge ? ` (${agent.source})` : ''}, ${agent.currentActivity}`}
       aria-current={isSelected ? 'true' : undefined}
