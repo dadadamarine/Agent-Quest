@@ -31,22 +31,17 @@ export const CITY_CLEAR = { x: 1400, y: 780, rx: 520, ry: 420 };
 export const PLAZA = { x: 1400, y: 780 };
 
 /**
- * Buildings placed in workflow order so hero movement follows the natural
- * handle-issue flow: spawn(Gate) → reading → thinking → editing ⇄ bash ⇄
- * debugging → git → reviewing → idle.
+ * Building coordinates follow the handle-issue workflow order to minimise hero
+ * travel distance on the transitions that happen most often in practice:
  *
- * Key layout decisions:
- * - Library (reading) and Castle (thinking) sit near the south gate so the
- *   first steps of a new task require minimal travel.
- * - Forge (editing), Arena (bash), and Alchemist (debugging) form a tight
- *   central cluster — the three most frequent mutual transitions stay close.
- * - Chapel (git) and Watchtower (reviewing) share the north-east corner,
- *   representing the late-stage commit/review phase.
- * - Tavern (idle) anchors the western plaza so waiting heroes don't clutter
- *   the active work zone.
- *
- * All coordinates lie inside the CITY_CLEAR ellipse (centre 1400,780;
- * rx=520, ry=420).
+ * - Forge/Arena/Alchemist cluster tightly (≤ 201 px apart) because editing,
+ *   running tests, and debugging cycle rapidly within a single task step.
+ * - Library and Castle sit near the south gate so the first two steps of every
+ *   task (read codebase, plan) require short walks from the spawn point.
+ * - Chapel and Watchtower share the north-east corner because git operations
+ *   and code review happen together at end-of-task, keeping that flow local.
+ * - Tavern occupies the western plaza so idle heroes stay out of the active
+ *   work zone and are visually distinct from agents in progress.
  */
 export const BUILDING_DEFS: BuildingDef[] = [
   { id: 'library',    label: 'Library',    activity: 'reading',   x: 1150, y: 900,  imageKey: 'building-library',    scale: 0.52, description: 'Agents come here to read and search code',                toolCalls: ['Read', 'Grep', 'Glob'] },
