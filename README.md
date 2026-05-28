@@ -49,7 +49,7 @@ Claude Code and Codex sessions happen in a terminal — useful, but not very *al
 - Auto-discovery of every `~/.claude*` directory (supports multiple installations like `~/.claude-work`, `~/.claude-personale`) and of `~/.codex` if present
 - Activity feed, party bar, and detail panel alongside the village scene
 - Built-in map editor for customizing the village layout
-- Sub-2s latency via native WebSocket (optional lower-latency path via Claude Code `postToolUse` hooks — Claude Code only; Codex doesn't expose hooks)
+- Sub-second latency: `fs.watch` event-driven updates over native WebSocket, with a safety-net poll fallback for events the watch misses
 
 ## Requirements
 

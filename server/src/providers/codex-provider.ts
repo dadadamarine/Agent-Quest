@@ -1,8 +1,10 @@
 import { readdir, stat } from 'node:fs/promises';
+import { watch, type FSWatcher } from 'node:fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 
 import { parseCodexLine, parseCodexSessionMeta } from '../parsers/codex-parser';
+import { ScanScheduler } from '../watchers/scan-scheduler';
 import type { ParsedEvent } from '../parsers/session-parser';
 import type { AgentSource } from '../types';
 import type { ProviderHandlers, SessionProvider } from './types';
@@ -10,10 +12,16 @@ import type { ProviderHandlers, SessionProvider } from './types';
 export interface CodexProviderOptions {
   /** Defaults to `~/.codex`. */
   codexRoot?: string;
-  /** How often to rescan the sessions tree. Default 3s. */
+  /** Safety-net poll interval (ms). fs.watch drives the fast path; this only
+   * catches events fs.watch missed. Default 4000. */
   scanIntervalMs?: number;
   /** Ignore rollout files whose mtime is older than this when first seen. Default 3h. */
   maxAgeMs?: number;
+  /** Debounce window for coalescing fs.watch bursts before a rescan (ms). Default 100. */
+  watchDebounceMs?: number;
+  /** Attach fs.watch for instant reaction. Default true. Tests that drive scans
+   * manually disable this to stay deterministic. */
+  watchEnabled?: boolean;
 }
 
 interface TrackedFile {
@@ -28,24 +36,23 @@ export class CodexProvider implements SessionProvider {
   private readonly codexRoot: string;
   private readonly scanIntervalMs: number;
   private readonly maxAgeMs: number;
+  private readonly watchDebounceMs: number;
+  private readonly watchEnabled: boolean;
   private handlers: ProviderHandlers | null = null;
-  private pollInterval: ReturnType<typeof setInterval> | null = null;
+  private scheduler: ScanScheduler | null = null;
+  private fsWatcher: FSWatcher | null = null;
   private tracked = new Map<string, TrackedFile>();
   /** Set when `start()` confirmed the codex root directory exists. Drives
    * `getConfigDirs()` — we must not advertise a non-existent install, otherwise
    * the client suppresses its missing-install banner. */
   private rootExists = false;
-  /** Re-entrancy guard for `scan()`. On machines with thousands of archived
-   * rollouts the recursive walk can take longer than `scanIntervalMs`, and
-   * overlapping scans race on `this.tracked` — the second scan sees `tracked`
-   * still undefined for a file the first one is mid-parsing, re-emits
-   * `onSessionStart`, and the state manager ends up with duplicate tool calls. */
-  private scanning = false;
 
   constructor(opts: CodexProviderOptions = {}) {
     this.codexRoot = opts.codexRoot ?? join(homedir(), '.codex');
-    this.scanIntervalMs = opts.scanIntervalMs ?? 3000;
+    this.scanIntervalMs = opts.scanIntervalMs ?? 4000;
     this.maxAgeMs = opts.maxAgeMs ?? 3 * 60 * 60_000;
+    this.watchDebounceMs = opts.watchDebounceMs ?? 100;
+    this.watchEnabled = opts.watchEnabled ?? true;
   }
 
   async start(handlers: ProviderHandlers): Promise<void> {
@@ -58,20 +65,49 @@ export class CodexProvider implements SessionProvider {
     }
     this.rootExists = true;
 
-    await this.scan();
-    this.pollInterval = setInterval(() => {
-      this.scan().catch((err) => {
-        console.error('[CodexProvider] scan error:', err);
-      });
-    }, this.scanIntervalMs);
+    this.scheduler = new ScanScheduler({
+      scan: () => this.traverse(),
+      debounceMs: this.watchDebounceMs,
+      pollMs: this.scanIntervalMs,
+      label: 'CodexProvider',
+    });
 
-    console.log(`[CodexProvider] watching ${this.codexRoot} every ${this.scanIntervalMs}ms`);
+    // fs.watch is a best-effort fast path. A failed watch must never stop the
+    // initial scan or the safety-net poll from running.
+    if (this.watchEnabled) this.setupFsWatch();
+
+    await this.scheduler.start();
+
+    console.log(`[CodexProvider] watching ${this.codexRoot} (fs.watch + ${this.scanIntervalMs}ms safety poll)`);
+  }
+
+  /** Attach a recursive fs.watch to the sessions tree. Any event coalesces into
+   * a debounced rescan. A missing sessions/ (or a platform that rejects the
+   * watch) is tolerated — the safety-net poll still covers it. */
+  private setupFsWatch(): void {
+    const sessionsDir = join(this.codexRoot, 'sessions');
+    try {
+      this.fsWatcher = watch(sessionsDir, { recursive: true }, () => {
+        this.scheduler?.request();
+      });
+      this.fsWatcher.on('error', (err) => {
+        console.warn(`[CodexProvider] fs.watch error on ${sessionsDir} (poll fallback active):`, err);
+      });
+    } catch (err) {
+      console.warn(`[CodexProvider] cannot watch ${sessionsDir} (poll fallback active):`, err);
+    }
   }
 
   stop(): void {
-    if (this.pollInterval !== null) {
-      clearInterval(this.pollInterval);
-      this.pollInterval = null;
+    this.scheduler?.stop();
+    this.scheduler = null;
+    if (this.fsWatcher !== null) {
+      try {
+        this.fsWatcher.close();
+      } catch {
+        // Already closed or never opened — nothing to do.
+      }
+      this.fsWatcher = null;
     }
     this.handlers = null;
   }
@@ -80,17 +116,22 @@ export class CodexProvider implements SessionProvider {
     return this.rootExists ? [this.codexRoot] : [];
   }
 
+  /** Guarded scan entry point. Routed through the scheduler so the fs.watch
+   * fast path, the safety poll, and tests all share one re-entrancy guard.
+   * Kept off the public SessionProvider surface — tests reach it via cast. */
   private async scan(): Promise<void> {
-    if (this.scanning) return;
-    this.scanning = true;
-    try {
-      const sessionsDir = join(this.codexRoot, 'sessions');
-      const files = await listRolloutFiles(sessionsDir).catch(() => [] as string[]);
-      for (const filePath of files) {
-        await this.processFile(filePath);
-      }
-    } finally {
-      this.scanning = false;
+    if (this.scheduler !== null) {
+      await this.scheduler.scanNow();
+      return;
+    }
+    await this.traverse();
+  }
+
+  private async traverse(): Promise<void> {
+    const sessionsDir = join(this.codexRoot, 'sessions');
+    const files = await listRolloutFiles(sessionsDir).catch(() => [] as string[]);
+    for (const filePath of files) {
+      await this.processFile(filePath);
     }
   }
 
@@ -118,13 +159,27 @@ export class CodexProvider implements SessionProvider {
         // Malformed rollout (no session_meta as first line) — skip for now, recheck next poll.
         return;
       }
+      // Parse only complete lines and track only their byte extent. fs.watch can
+      // discover a rollout while Codex is still writing its final line; parsing
+      // the whole file but recording the full size would either lose a truncated
+      // line or re-deliver a complete-but-unterminated one once it gets its '\n'.
+      // (No newline at all → fall back to s.size; the lone first line already
+      // parsed cleanly enough to yield meta.)
+      const lastCompleteNewline = contents.lastIndexOf('\n');
+      const completePortion = lastCompleteNewline === -1
+        ? contents
+        : contents.slice(0, lastCompleteNewline + 1);
+      const trackedSize = lastCompleteNewline === -1
+        ? s.size
+        : Buffer.byteLength(completePortion, 'utf8');
       const events: ParsedEvent[] = [];
-      for (const line of contents.split('\n')) {
+      for (const line of completePortion.split('\n')) {
         if (line.trim() === '') continue;
         const ev = parseCodexLine(line, meta.id, meta.cwd);
         if (ev !== null) events.push(ev);
       }
-      this.tracked.set(filePath, { sessionId: meta.id, sessionCwd: meta.cwd, size: s.size });
+      this.tracked.set(filePath, { sessionId: meta.id, sessionCwd: meta.cwd, size: trackedSize });
+      if (this.handlers === null) return; // stop() landed mid-scan — don't emit
       await handlers.onSessionStart({
         source: this.source,
         sessionId: meta.id,
@@ -173,6 +228,7 @@ export class CodexProvider implements SessionProvider {
     tracked.size += Buffer.byteLength(complete, 'utf8');
 
     if (events.length === 0) return;
+    if (this.handlers === null) return; // stop() landed mid-scan — don't emit
 
     handlers.onSessionEvents({
       source: this.source,

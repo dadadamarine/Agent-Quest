@@ -3,6 +3,16 @@ import { mkdtempSync, mkdirSync, writeFileSync, appendFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { CodexProvider } from './codex-provider';
+import { fsWatchDeliversEvents } from '../watchers/fs-watch-probe';
+
+// fs.watch event delivery is environment-dependent (sandboxes / some CI suppress
+// it). The fs.watch integration test runs only where events fire; the manual-scan
+// tests cover the logic in every environment.
+const FS_WATCH = await fsWatchDeliversEvents();
+const watchTest = FS_WATCH ? test : test.skip;
+if (!FS_WATCH) {
+  console.warn('[codex-provider.test] fs.watch events unavailable here — skipping fs.watch integration test');
+}
 
 function makeSessionMeta(id: string, cwd: string): string {
   return JSON.stringify({
@@ -47,6 +57,7 @@ test('CodexProvider discovers rollout files, emits session start + events', asyn
   const updates: unknown[] = [];
   const p = new CodexProvider({
     codexRoot: root,
+    watchEnabled: false, // deterministic — drive scans manually, no fs.watch
     scanIntervalMs: 60_000, // no auto-poll during test — we call scan() manually
   });
 
@@ -90,12 +101,13 @@ test('CodexProvider skips files older than maxAgeMs', async () => {
   const starts: unknown[] = [];
   const p = new CodexProvider({
     codexRoot: root,
+    watchEnabled: false, // deterministic — drive scans manually, no fs.watch
     scanIntervalMs: 60_000,
     maxAgeMs: 3 * 3600_000,
   });
 
   await p.start({
-    onSessionStart: (payload) => starts.push(payload),
+    onSessionStart: (payload) => { starts.push(payload); },
     onSessionEvents: () => {},
   });
 
@@ -107,6 +119,7 @@ test('CodexProvider.getConfigDirs returns [] when codex root does not exist', as
   const p = new CodexProvider({
     codexRoot: '/tmp/definitely-not-a-real-path-codex-xyz-9999',
     scanIntervalMs: 60_000,
+    watchEnabled: false,
   });
 
   await p.start({ onSessionStart: () => {}, onSessionEvents: () => {} });
@@ -133,12 +146,13 @@ test('CodexProvider picks up a stale-on-first-sight file that resumes writing', 
   const starts: unknown[] = [];
   const p = new CodexProvider({
     codexRoot: root,
+    watchEnabled: false, // deterministic — drive scans manually, no fs.watch
     scanIntervalMs: 60_000,
     maxAgeMs: 3 * 3600_000,
   });
 
   await p.start({
-    onSessionStart: (payload) => starts.push(payload),
+    onSessionStart: (payload) => { starts.push(payload); },
     onSessionEvents: () => {},
   });
 
@@ -175,6 +189,7 @@ test('CodexProvider.scan is re-entrancy-safe under overlapping invocations', asy
   const starts: unknown[] = [];
   const p = new CodexProvider({
     codexRoot: root,
+    watchEnabled: false, // deterministic — drive scans manually, no fs.watch
     scanIntervalMs: 60_000,
   });
 
@@ -186,13 +201,75 @@ test('CodexProvider.scan is re-entrancy-safe under overlapping invocations', asy
   // Re-entrant call: start() already ran one scan; fire two more in parallel.
   // Without the guard the second would re-enter the first-sight path for the
   // same file (tracked still undefined from the in-flight parse) and emit a
-  // duplicate onSessionStart. With the guard, only one of the parallel calls
-  // actually runs, the other is a no-op, and we stay at one session start.
+  // duplicate onSessionStart. The scheduler serializes them: one acquires the
+  // guard, the other queues a single rescan that finds nothing new — so we stay
+  // at one session start.
   const scan = (p as unknown as { scan: () => Promise<void> }).scan.bind(p);
   await Promise.all([scan(), scan()]);
 
   expect(starts.length).toBe(1);
   p.stop();
+});
+
+watchTest('CodexProvider reacts to appends via fs.watch (no manual scan)', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'codex-test-'));
+  const day = join(root, 'sessions', '2026', '04', '23');
+  mkdirSync(day, { recursive: true });
+  const file = join(day, 'rollout-watch.jsonl');
+  writeFileSync(
+    file,
+    makeSessionMeta('watch-thread', '/proj') + '\n' + makeUserMessage('hi') + '\n',
+  );
+
+  const updates: unknown[] = [];
+  const p = new CodexProvider({
+    codexRoot: root,
+    scanIntervalMs: 60_000, // safety poll effectively off — only fs.watch may fire
+    watchDebounceMs: 20,
+    // watchEnabled defaults to true: this test exercises the fs.watch fast path.
+  });
+
+  await p.start({
+    onSessionStart: () => {},
+    onSessionEvents: (payload) => { updates.push(payload); },
+  });
+
+  appendFileSync(file, makeTaskComplete() + '\n');
+  await Bun.sleep(200); // let fs.watch + debounce drive the rescan
+
+  expect(updates.length).toBe(1);
+  const upd = updates[0] as { sessionId: string; events: unknown[] };
+  expect(upd.sessionId).toBe('watch-thread');
+
+  p.stop();
+});
+
+test('CodexProvider emits nothing after stop(), even if a later scan runs', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'codex-test-'));
+  const day = join(root, 'sessions', '2026', '04', '23');
+  mkdirSync(day, { recursive: true });
+  const file = join(day, 'rollout-stop.jsonl');
+  writeFileSync(
+    file,
+    makeSessionMeta('stop-thread', '/proj') + '\n' + makeUserMessage('hi') + '\n',
+  );
+
+  const updates: unknown[] = [];
+  const p = new CodexProvider({
+    codexRoot: root,
+    scanIntervalMs: 60_000,
+    watchEnabled: false, // deterministic — drive the post-stop scan manually
+  });
+
+  await p.start({
+    onSessionStart: () => {},
+    onSessionEvents: (payload) => { updates.push(payload); },
+  });
+
+  p.stop();
+  appendFileSync(file, makeTaskComplete() + '\n');
+  await (p as unknown as { scan: () => Promise<void> }).scan(); // must not emit after stop
+  expect(updates.length).toBe(0);
 });
 
 test('CodexProvider holds back partial trailing line until it is completed', async () => {
@@ -208,6 +285,7 @@ test('CodexProvider holds back partial trailing line until it is completed', asy
   const updates: unknown[] = [];
   const p = new CodexProvider({
     codexRoot: root,
+    watchEnabled: false, // deterministic — drive scans manually, no fs.watch
     scanIntervalMs: 60_000,
   });
 
@@ -238,6 +316,48 @@ test('CodexProvider holds back partial trailing line until it is completed', asy
   // Now the previously partial event must have been picked up.
   expect(updates.length).toBe(2);
   expect((updates[1] as { events: unknown[] }).events.length).toBe(1);
+
+  p.stop();
+});
+
+test('CodexProvider holds back a partial trailing line on first discovery (no re-delivery)', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'codex-test-'));
+  const day = join(root, 'sessions', '2026', '04', '23');
+  mkdirSync(day, { recursive: true });
+  const file = join(day, 'rollout-first-partial.jsonl');
+  // Rollout already exists, caught mid-write (last line complete JSON but no '\n'),
+  // BEFORE the provider's first scan.
+  const trailing = makeTaskComplete(); // valid JSON, but no trailing newline
+  writeFileSync(
+    file,
+    makeSessionMeta('first-partial', '/proj') + '\n' + makeUserMessage('hi') + '\n' + trailing,
+  );
+
+  const starts: unknown[] = [];
+  const updates: unknown[] = [];
+  const p = new CodexProvider({
+    codexRoot: root,
+    watchEnabled: false, // deterministic — drive scans manually
+    scanIntervalMs: 60_000,
+  });
+
+  await p.start({
+    onSessionStart: (payload) => { starts.push(payload); },
+    onSessionEvents: (payload) => { updates.push(payload); },
+  });
+
+  // First sight delivers only the complete lines; the unterminated trailing line
+  // is held back, not delivered yet.
+  expect(starts.length).toBe(1);
+  expect((starts[0] as { events: unknown[] }).events.length).toBe(1); // user_message only
+
+  // Complete the trailing line.
+  appendFileSync(file, '\n');
+  await (p as unknown as { scan: () => Promise<void> }).scan();
+
+  // The trailing line is delivered exactly once now — never twice.
+  expect(updates.length).toBe(1);
+  expect((updates[0] as { events: unknown[] }).events.length).toBe(1);
 
   p.stop();
 });
