@@ -68,7 +68,12 @@ export function getBuildingForActivity(activity: AgentActivity): BuildingDef {
   return building ?? BUILDING_DEFS.find((b) => b.activity === 'idle')!;
 }
 
-/** Road styles shared with the editor's PathSegment palette. */
+/**
+ * Road styles, mirroring the editor's `PathSegment['style']` palette. Kept as a
+ * standalone union (rather than importing the editor schema into core game
+ * data) — a landmark connector flows through `drawPath(PathSegment)`, so tsc
+ * enforces compatibility at that call site and silent drift can't compile.
+ */
 export type RoadStyle = 'main' | 'secondary' | 'trail' | 'plaza';
 
 /**
@@ -113,23 +118,26 @@ export interface LandmarkDef {
  * Detection/routing of live C-LEVEL agents into these seats is intentionally
  * out of scope — this reserves the space only.
  */
+/** Single source of truth for the council position — referenced by both the
+ * landmark coordinates and its connector road endpoint so they cannot drift. */
+export const COUNCIL_POSITION = { x: 1400, y: 480 } as const;
+
 export const LANDMARK_DEFS: LandmarkDef[] = [
   {
     id: 'council',
     label: 'C-LEVEL',
-    x: 1400,
-    y: 480,
+    x: COUNCIL_POSITION.x,
+    y: COUNCIL_POSITION.y,
     imageKey: 'landmark-council',
     scale: 0.6,
     description: 'The C-LEVEL council — where the CEO, CFO, CSO, and Architect preside',
     seats: ['CEO', 'CFO', 'CSO', 'Architect'],
     // Ceremonial avenue straight up the central axis from the plaza hub to the
-    // council base, completing the south→north hierarchy. Endpoint tracks the
-    // council position above (1400, 480) — kept in sync by a unit test.
+    // council base, completing the south→north hierarchy.
     connector: {
       points: [
         { x: PLAZA.x, y: PLAZA.y },
-        { x: 1400, y: 480 },
+        { x: COUNCIL_POSITION.x, y: COUNCIL_POSITION.y },
       ],
       width: 48,
       style: 'main',

@@ -5,7 +5,7 @@ import { Landmark } from '../entities/Landmark';
 import { HeroSprite } from '../entities/HeroSprite';
 import { BUILDING_DEFS, LANDMARK_DEFS, VILLAGE_GATE, WORLD_WIDTH, WORLD_HEIGHT, getBuildingForActivity } from '../data/building-layout';
 import { TerrainRenderer } from '../terrain/TerrainRenderer';
-import { renderMapConfig, drawPath } from '../terrain/MapConfigRenderer';
+import { renderMapConfig, drawPath, PATH_LAYER_DEPTH } from '../terrain/MapConfigRenderer';
 import { ensureAssetsLoaded } from '../data/asset-loader';
 import { buildRoadNetworkFromPaths, resetRoadNetwork } from '../data/road-network';
 import { NpcSprite } from '../entities/NpcSprite';
@@ -491,6 +491,13 @@ export class VillageScene extends Phaser.Scene {
 
     try { if (!this.sys.isActive()) return; } catch { return; }
 
+    // Depth for landmark connector roads — must match the active terrain path's
+    // own layer, which differs by render path: MapConfigRenderer puts paths at
+    // PATH_LAYER_DEPTH (-400, above its -800 terrain), while the procedural
+    // TerrainRenderer draws grass at ~-2 and roads at ~0. A fixed -400 would
+    // sink the connector behind the procedural grass and make it invisible.
+    let landmarkRoadDepth = PATH_LAYER_DEPTH;
+
     if (mapConfig !== null && manifest !== null) {
       console.log('[VillageScene] rendering SAVED map from /api/map');
       await ensureAssetsLoaded(this, manifest, mapConfig);
@@ -524,12 +531,13 @@ export class VillageScene extends Phaser.Scene {
       new TerrainRenderer(this).render();
       this.spawnBuildings(null);
       resetRoadNetwork();
+      landmarkRoadDepth = 0; // procedural roads sit at ~0, above the -2 grass
     }
 
     // Landmarks (e.g. the C-LEVEL Council) render in both paths — they are not
     // editor-managed, so they are spawned unconditionally after the terrain
     // and activity buildings are in place.
-    this.spawnLandmarks();
+    this.spawnLandmarks(landmarkRoadDepth);
 
     // Buildings are now spawned — process any buffered agent updates
     this.buildingsReady = true;
@@ -594,15 +602,15 @@ export class VillageScene extends Phaser.Scene {
     }
   }
 
-  private spawnLandmarks(): void {
-    // Connector roads first, on the same ground layer (depth -400) the MapConfig
-    // paths use, so they sit behind every structure, NPC, and hero. These are
-    // decorative only — landmarks are not part of the hero pathfinding graph.
+  private spawnLandmarks(roadDepth: number): void {
+    // Connector roads first, on the active terrain's path layer (roadDepth) so
+    // they sit behind every structure, NPC, and hero. These are decorative only
+    // — landmarks are not part of the hero pathfinding graph.
     let roadContainer: Phaser.GameObjects.Container | null = null;
     for (const def of LANDMARK_DEFS) {
       if (def.connector === undefined) continue;
       if (roadContainer === null) {
-        roadContainer = this.add.container(0, 0).setDepth(-400);
+        roadContainer = this.add.container(0, 0).setDepth(roadDepth);
       }
       drawPath(this, roadContainer, {
         id: `${def.id}-connector`,

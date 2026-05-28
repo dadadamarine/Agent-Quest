@@ -14,6 +14,11 @@ interface Containers {
   paths: Phaser.GameObjects.Container;
 }
 
+/** Depth of the saved-map path layer: above terrain (-800), below structures
+ * (positive Y-depth). Shared so landmark connector roads can sit on the same
+ * layer in the MapConfig render path. */
+export const PATH_LAYER_DEPTH = -400;
+
 const PATH_STYLES = {
   main:      { fill: 0x7A6548, stroke: 0x4A3A24, strokeAlpha: 0.55, fillAlpha: 0.92 },
   secondary: { fill: 0x8A7858, stroke: 0x5A4A2C, strokeAlpha: 0.5,  fillAlpha: 0.88 },
@@ -42,7 +47,7 @@ export function renderMapConfig(
   ).setDepth(-1000);
 
   const terrain = scene.add.container(0, 0).setDepth(-800);
-  const paths = scene.add.container(0, 0).setDepth(-400);
+  const paths = scene.add.container(0, 0).setDepth(PATH_LAYER_DEPTH);
   // Decorations are added directly to the scene (not wrapped in a container) so
   // each sprite's Y-based depth can freely interleave with NPCs and heroes for
   // correct perspective sorting. A container would collapse all decorations to
