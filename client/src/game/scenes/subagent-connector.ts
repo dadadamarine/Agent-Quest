@@ -10,11 +10,19 @@
 /** Phaser hex color for the connector dashed line (soft cyan-purple, fantasy feel). */
 export const CONNECTOR_COLOR = 0x9b72cf;
 
-/** Opacity of the connector line — subtle enough not to overpower sprites. */
-export const CONNECTOR_ALPHA = 0.55;
+/** Opacity of the connector line — legible against dense terrain, still translucent. */
+export const CONNECTOR_ALPHA = 0.8;
 
-/** Stroke width in pixels. Thin so it reads as a relation hint, not a UI chrome. */
-export const CONNECTOR_LINE_WIDTH = 1.5;
+/** Stroke width in pixels. Thick enough to read as a tether, thin enough to stay a hint. */
+export const CONNECTOR_LINE_WIDTH = 2.5;
+
+/**
+ * Render depth for the connector layer. Ground decorations (grass tufts) top
+ * out at ~0.32 and hero sprites use a footY-based depth in the hundreds, so
+ * this sits above the ground clutter (not occluded) yet below every sprite
+ * (reads as a ground tether without covering hero labels).
+ */
+export const CONNECTOR_DEPTH = 0.5;
 
 /** Length of each drawn dash segment in pixels. */
 export const CONNECTOR_DASH_LENGTH = 6;

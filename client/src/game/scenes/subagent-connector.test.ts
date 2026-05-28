@@ -11,6 +11,7 @@ import {
   CONNECTOR_LINE_WIDTH,
   CONNECTOR_DASH_LENGTH,
   CONNECTOR_GAP_LENGTH,
+  CONNECTOR_DEPTH,
 } from './subagent-connector';
 
 describe('buildConnectorSegments', () => {
@@ -66,19 +67,32 @@ describe('CONNECTOR_COLOR constant', () => {
 });
 
 describe('CONNECTOR_ALPHA constant', () => {
-  test('is between 0 and 1 (visible but not fully opaque)', () => {
-    expect(CONNECTOR_ALPHA).toBeGreaterThan(0);
-    expect(CONNECTOR_ALPHA).toBeLessThanOrEqual(1);
-    // Should not be full opacity — connector should be subtle
+  test('is legible yet not fully opaque', () => {
+    // Must be opaque enough to read against a dense terrain (issue #32: the
+    // tether was too faint to notice), but still translucent so it doesn't
+    // overpower the sprites.
+    expect(CONNECTOR_ALPHA).toBeGreaterThanOrEqual(0.7);
     expect(CONNECTOR_ALPHA).toBeLessThan(1);
   });
 });
 
 describe('CONNECTOR_LINE_WIDTH constant', () => {
-  test('is a positive number (visible line)', () => {
-    expect(CONNECTOR_LINE_WIDTH).toBeGreaterThan(0);
-    // Should stay thin (1-3 px) to not overpower the sprites
+  test('is thick enough to read but stays thin', () => {
+    // At 1.5px the line was lost under sprites/grass (issue #32). Keep it in
+    // the 2-3px band: visible without becoming UI chrome.
+    expect(CONNECTOR_LINE_WIDTH).toBeGreaterThanOrEqual(2);
     expect(CONNECTOR_LINE_WIDTH).toBeLessThanOrEqual(3);
+  });
+});
+
+describe('CONNECTOR_DEPTH constant', () => {
+  test('renders above ground decorations but below hero sprites', () => {
+    // Terrain decorations (grass tufts) top out at ~0.32; hero sprites use a
+    // footY-based depth in the hundreds. The connector must sit above the
+    // ground clutter so it is not occluded, yet below the sprites so it reads
+    // as a ground tether (issue #32: at depth 0.3 it was buried under grass).
+    expect(CONNECTOR_DEPTH).toBeGreaterThan(0.32);
+    expect(CONNECTOR_DEPTH).toBeLessThan(1);
   });
 });
 

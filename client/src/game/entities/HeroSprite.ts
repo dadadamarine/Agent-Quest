@@ -38,6 +38,18 @@ const INDEX_COLOR = '#F5E6C8';
 
 const HALO_TEXTURE_KEY = 'hero-selection-halo';
 
+// Sub-agent marker visuals. Sub-agents render at 0.7x scale, so these markers
+// must be prominent enough to read on a shrunken sprite in a dense village
+// (issue #32: the glow/badge were too faint to notice). The same purple as the
+// connector line (CONNECTOR_COLOR) ties the visual identity together.
+const SUBAGENT_GLOW_COLOR = 0x9b72cf;
+const SUBAGENT_GLOW_WIDTH = 3;
+const SUBAGENT_GLOW_RADIUS_FACTOR = 0.6;
+/** Pulse range driven by the Graphics object alpha (stroke alpha stays 1.0). */
+const SUBAGENT_GLOW_PULSE_MIN = 0.5;
+const SUBAGENT_GLOW_PULSE_MAX = 0.85;
+const SUBAGENT_BADGE_FONT_SIZE = '12px';
+
 function ensureHaloTexture(scene: Phaser.Scene): void {
   if (scene.textures.exists(HALO_TEXTURE_KEY)) return;
   const size = 128;
@@ -259,17 +271,19 @@ export class HeroSprite {
    * sprite's top-right corner.
    */
   private initSubagentMarkers(): void {
-    const radius = this.sprite.displayWidth * 0.55;
+    const radius = this.sprite.displayWidth * SUBAGENT_GLOW_RADIUS_FACTOR;
 
-    // Glow ring — drawn as a filled transparent circle so the stroke appears
-    // on top of the sprite rather than underneath it. A pulsing tween drives
-    // alpha between 0.35 and 0.8, giving a "breathing" glow effect.
+    // Glow ring — the stroke is always drawn at full alpha; the pulsing
+    // "breathing" effect comes from tweening the Graphics object's alpha
+    // between SUBAGENT_GLOW_PULSE_MIN and _MAX. Keeping the stroke alpha fixed
+    // means the init draw and every per-frame reposition redraw render the ring
+    // at the same brightness (issue #32: they previously diverged — 0.55 vs 1.0).
     this.subagentGlowRing = this.scene.add.graphics();
-    this.drawSubagentGlowRing(radius, 0.55);
+    this.drawSubagentGlowRing(radius);
 
     this.subagentGlowTween = this.scene.tweens.add({
       targets: this.subagentGlowRing,
-      alpha: { from: 0.35, to: 0.8 },
+      alpha: { from: SUBAGENT_GLOW_PULSE_MIN, to: SUBAGENT_GLOW_PULSE_MAX },
       duration: 1200,
       yoyo: true,
       repeat: -1,
@@ -284,7 +298,7 @@ export class HeroSprite {
       this._y,
       '⚙',
       {
-        fontSize: '10px',
+        fontSize: SUBAGENT_BADGE_FONT_SIZE,
         color: '#c8a8ff',
         fontFamily: 'monospace',
         backgroundColor: 'rgba(20,10,40,0.75)',
@@ -302,10 +316,13 @@ export class HeroSprite {
    * Redraw the glow ring graphics at the hero's current screen position.
    * Called whenever the hero moves or its scale changes.
    */
-  private drawSubagentGlowRing(radius: number, alpha: number): void {
+  private drawSubagentGlowRing(radius: number): void {
     if (this.subagentGlowRing === null) return;
+    // Graphics objects draw in world space — clear and redraw at the current
+    // position. Stroke alpha stays at full; the pulse comes from the object
+    // alpha tween, so this single draw path is the only place the ring is rendered.
     this.subagentGlowRing.clear();
-    this.subagentGlowRing.lineStyle(2, 0x9b72cf, alpha);
+    this.subagentGlowRing.lineStyle(SUBAGENT_GLOW_WIDTH, SUBAGENT_GLOW_COLOR, 1);
     this.subagentGlowRing.strokeCircle(this._x, this._y, radius);
   }
 
@@ -313,13 +330,10 @@ export class HeroSprite {
   private repositionSubagentMarkers(): void {
     if (this.subagentGlowRing === null && this.subagentIconText === null) return;
 
-    const radius = this.sprite.displayWidth * 0.55;
+    const radius = this.sprite.displayWidth * SUBAGENT_GLOW_RADIUS_FACTOR;
 
     if (this.subagentGlowRing !== null) {
-      // Graphics objects draw in world space — clear and redraw at new position.
-      this.subagentGlowRing.clear();
-      this.subagentGlowRing.lineStyle(2, 0x9b72cf, 1.0);
-      this.subagentGlowRing.strokeCircle(this._x, this._y, radius);
+      this.drawSubagentGlowRing(radius);
     }
 
     if (this.subagentIconText !== null) {

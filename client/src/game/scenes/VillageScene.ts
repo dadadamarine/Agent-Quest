@@ -33,6 +33,7 @@ import {
   CONNECTOR_LINE_WIDTH,
   CONNECTOR_DASH_LENGTH,
   CONNECTOR_GAP_LENGTH,
+  CONNECTOR_DEPTH,
 } from './subagent-connector';
 
 /** Set `cam.zoom` to `newZoom` while keeping the world point currently
@@ -230,10 +231,10 @@ export class VillageScene extends Phaser.Scene {
 
     // --- Sub-agent connector lines ---
     // A single reusable Graphics layer cleared and redrawn each frame in update().
-    // Depth sits just below sprites (footY + 0.3) so connectors appear as
-    // ground-level guides without obscuring hero labels.
+    // CONNECTOR_DEPTH sits above ground decorations but below sprites, so the
+    // tether reads as a ground-level guide without obscuring hero labels.
     this.subagentConnectorGraphics = this.add.graphics();
-    this.subagentConnectorGraphics.setDepth(0.3);
+    this.subagentConnectorGraphics.setDepth(CONNECTOR_DEPTH);
 
     // --- Night overlay ---
     this.nightOverlay = this.add.graphics();
