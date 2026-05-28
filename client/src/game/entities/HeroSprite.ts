@@ -36,6 +36,9 @@ const BUBBLE_TASK_COLOR = '#3D1F00';   // user command — dark brown, dominant
 const BUBBLE_MSG_COLOR = '#8C6A4A';   // system feedback — mid brown, recessive
 const INDEX_COLOR = '#F5E6C8';
 
+/** Sub-agent label fonts shrink by this factor vs a top-level hero (7px floor). */
+const SUBAGENT_LABEL_FACTOR = 0.8;
+
 const HALO_TEXTURE_KEY = 'hero-selection-halo';
 
 function ensureHaloTexture(scene: Phaser.Scene): void {
@@ -187,9 +190,15 @@ export class HeroSprite {
     const nameColor = HERO_LABEL_COLOR[heroColor] ?? '#DDDDDD';
     this.nameBaseColor = nameColor;
 
+    // Sub-agents render smaller all round (sprite + labels) so they read as
+    // lightweight helpers next to a full session. Shrink every label font by
+    // SUBAGENT_LABEL_FACTOR, with a 7px floor to stay legible.
+    const labelPx = (px: number): string =>
+      isSubagent ? `${Math.max(7, Math.round(px * SUBAGENT_LABEL_FACTOR))}px` : `${px}px`;
+
     // Hero name — below feet, wraps to 2 lines for long display names.
     this.nameText = addCrispText(scene, x, y + this.nameOffsetY, truncateLabel(name, NAME_MAX_CHARS), {
-      fontSize: '11px',
+      fontSize: labelPx(11),
       color: nameColor,
       fontFamily: "'Fira Code', monospace",
       backgroundColor: LABEL_BG,
@@ -204,7 +213,7 @@ export class HeroSprite {
     this.bubbleBg.setVisible(false);
 
     this.taskText = addCrispText(scene, x, y + this.taskOffsetY, '', {
-      fontSize: '11px',
+      fontSize: labelPx(11),
       fontStyle: 'bold',
       color: BUBBLE_TASK_COLOR,
       fontFamily: "'Fira Code', monospace",
@@ -213,7 +222,7 @@ export class HeroSprite {
     }).setOrigin(0.5, 1).setVisible(false);
 
     this.activityMsgText = addCrispText(scene, x, y + this.activityMsgOffsetY, '', {
-      fontSize: '9px',
+      fontSize: labelPx(9),
       color: BUBBLE_MSG_COLOR,
       fontFamily: "'Fira Code', monospace",
       align: 'center',
@@ -224,7 +233,7 @@ export class HeroSprite {
     // anchors its right edge to the position so it grows leftward; the actual x is
     // sprite-left-edge minus a 2px gap.
     this.indexText = addCrispText(scene, x + this.indexOffsetX, y + this.indexOffsetY, '', {
-      fontSize: '10px',
+      fontSize: labelPx(10),
       color: INDEX_COLOR,
       fontFamily: "'Fira Code', monospace",
       backgroundColor: 'rgba(0,0,0,0.8)',

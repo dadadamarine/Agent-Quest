@@ -134,6 +134,16 @@
 .partybar-agent.subrow .partybar-index {
   color: #c8a8ff;
 }
+/* Sub-agents read smaller overall — shrink the row's text + index badge too. */
+.partybar.mode-full .partybar-agent.subrow { padding-top: 4px; padding-bottom: 4px; }
+.partybar.mode-full .partybar-agent.subrow .partybar-agent-name { font-size: 12px; }
+.partybar.mode-full .partybar-agent.subrow .partybar-activity { font-size: 10px; }
+.partybar-agent.subrow .partybar-index {
+  min-width: 16px;
+  height: 16px;
+  font-size: 10px;
+  line-height: 16px;
+}
 /* Collapsed icon strip: a left branch accent is enough to mark a sub-agent. */
 .partybar.mode-icons .partybar-agent.subrow {
   border-left: 3px solid rgba(155, 114, 207, 0.75);

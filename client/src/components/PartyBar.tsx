@@ -52,6 +52,9 @@ function PartyRow({ agent, index, depth, mode, isSelected, onClick, showSourceBa
     ? `${agent.name} · ${agent.currentActivity}`
     : undefined;
 
+  // Sub-agents render smaller than top-level sessions, here and in the village.
+  const avatarSize = depth > 0 ? Math.round(AVATAR_SIZE * 0.7) : AVATAR_SIZE;
+
   return (
     <button
       type="button"
@@ -63,7 +66,7 @@ function PartyRow({ agent, index, depth, mode, isSelected, onClick, showSourceBa
     >
       <span className="partybar-avatar-wrap">
         <span className="partybar-index" aria-label={`hero ${index}`}>{index}</span>
-        <HeroAvatar agent={agent} size={AVATAR_SIZE} />
+        <HeroAvatar agent={agent} size={avatarSize} />
         <span className={`partybar-status-overlay ${agent.status}`} aria-hidden="true" />
       </span>
       {mode === 'full' && (
