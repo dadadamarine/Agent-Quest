@@ -83,12 +83,13 @@ export interface ThemeManifest {
   /** Background tileset for TerrainRenderer. When absent, the renderer
    * falls back to its built-in procedural grass tile. */
   terrain?: TerrainConfig;
-  /** PNG path for a functional building (id from BUILDING_DEFS).
-   * All themes are required to provide imagery for every building id. */
+  /** PNG path for a structure id — an activity building (BUILDING_DEFS) or a
+   * landmark (LANDMARK_DEFS). Resolved by id, so both share this resolver.
+   * All themes are required to provide imagery for every structure id. */
   getBuildingImage(id: string): string;
-  /** Optional per-building scale override. When absent, the default
-   * from BUILDING_DEFS is used. Needed when the theme's native building
-   * sizes differ from the default pack. */
+  /** Optional per-structure scale override (building or landmark). When
+   * absent, the default from BUILDING_DEFS / LANDMARK_DEFS is used. Needed
+   * when the theme's native structure sizes differ from the default pack. */
   getBuildingScale?(id: string): number | undefined;
   /** Decorations, decorative houses, trees, stumps — every static/sprite
    * asset BootScene used to hardcode. */

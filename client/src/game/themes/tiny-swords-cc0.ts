@@ -303,4 +303,8 @@ const CC0_BUILDINGS: Record<string, { path: string; scale: number }> = {
   watchtower: { path: `${CUSTOM_BUILDINGS_BASE}/Tower.png`,        scale: 0.35 },
   arena:      { path: `${CUSTOM_BUILDINGS_BASE}/Arena.png`,        scale: 0.35 },
   alchemist:  { path: `${CUSTOM_BUILDINGS_BASE}/Alchemist.png`,    scale: 0.35 },
+  // C-LEVEL Council landmark — reuses the Knights faction purple castle
+  // (purple reads as royalty and ties into the NE purple NPC village) at a
+  // larger scale so it dominates the worker buildings. No bespoke art needed.
+  council:    { path: 'assets/themes/tiny-swords-cc0/Factions/Knights/Buildings/Castle/Castle_Purple.png', scale: 0.6 },
 };
