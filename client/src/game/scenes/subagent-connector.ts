@@ -17,12 +17,14 @@ export const CONNECTOR_ALPHA = 0.8;
 export const CONNECTOR_LINE_WIDTH = 2.5;
 
 /**
- * Render depth for the connector layer. Ground decorations (grass tufts) top
- * out at ~0.32 and hero sprites use a footY-based depth in the hundreds, so
- * this sits above the ground clutter (not occluded) yet below every sprite
- * (reads as a ground tether without covering hero labels).
+ * Render depth for the connector layer. Small ground decorations top out at
+ * 0.5 (wildflower dots in TerrainRenderer), larger structures sit at 1+, and
+ * hero sprites use a footY-based depth in the hundreds. 0.6 lands in the gap:
+ * above every ground decoration (so the tether is not occluded by grass or
+ * flowers) yet below structures and sprites (so it reads as a ground tether
+ * without covering hero labels).
  */
-export const CONNECTOR_DEPTH = 0.5;
+export const CONNECTOR_DEPTH = 0.6;
 
 /** Length of each drawn dash segment in pixels. */
 export const CONNECTOR_DASH_LENGTH = 6;

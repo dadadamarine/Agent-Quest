@@ -86,12 +86,13 @@ describe('CONNECTOR_LINE_WIDTH constant', () => {
 });
 
 describe('CONNECTOR_DEPTH constant', () => {
-  test('renders above ground decorations but below hero sprites', () => {
-    // Terrain decorations (grass tufts) top out at ~0.32; hero sprites use a
-    // footY-based depth in the hundreds. The connector must sit above the
-    // ground clutter so it is not occluded, yet below the sprites so it reads
-    // as a ground tether (issue #32: at depth 0.3 it was buried under grass).
-    expect(CONNECTOR_DEPTH).toBeGreaterThan(0.32);
+  test('renders above ground decorations but below structures and sprites', () => {
+    // Small ground decorations (wildflower dots) reach 0.5 in TerrainRenderer;
+    // structures sit at 1+ and hero sprites use a footY-based depth in the
+    // hundreds. The connector must clear the ground decor (>0.5) so it is not
+    // occluded, yet stay below structures/sprites (<1) so it reads as a ground
+    // tether (issue #32: at depth 0.3 it was buried; 0.5 collided with flowers).
+    expect(CONNECTOR_DEPTH).toBeGreaterThan(0.5);
     expect(CONNECTOR_DEPTH).toBeLessThan(1);
   });
 });
