@@ -1,6 +1,6 @@
 import * as Phaser from 'phaser';
 import { eventBridge } from '../EventBridge';
-import { BUILDING_DEFS } from '../data/building-layout';
+import { BUILDING_DEFS, LANDMARK_DEFS } from '../data/building-layout';
 import { addCrispText } from '../text';
 import { getActiveTheme } from '../themes/registry';
 import { groupMissingByCategory } from '../data/asset-diagnostics';
@@ -67,6 +67,13 @@ export class BootScene extends Phaser.Scene {
     // Goblins building PNG via getBuildingImage().
     const theme = getActiveTheme();
     for (const def of BUILDING_DEFS) {
+      this.load.image(def.imageKey, theme.getBuildingImage(def.id));
+    }
+
+    // Landmarks (e.g. the C-LEVEL Council) are structures with no activity —
+    // load their images the same way so they render in both the saved-map and
+    // procedural-fallback paths.
+    for (const def of LANDMARK_DEFS) {
       this.load.image(def.imageKey, theme.getBuildingImage(def.id));
     }
 

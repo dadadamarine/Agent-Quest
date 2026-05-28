@@ -1,8 +1,9 @@
 import * as Phaser from 'phaser';
 import { eventBridge } from '../EventBridge';
 import { Building } from '../entities/Building';
+import { Landmark } from '../entities/Landmark';
 import { HeroSprite } from '../entities/HeroSprite';
-import { BUILDING_DEFS, VILLAGE_GATE, WORLD_WIDTH, WORLD_HEIGHT, getBuildingForActivity } from '../data/building-layout';
+import { BUILDING_DEFS, LANDMARK_DEFS, VILLAGE_GATE, WORLD_WIDTH, WORLD_HEIGHT, getBuildingForActivity } from '../data/building-layout';
 import { TerrainRenderer } from '../terrain/TerrainRenderer';
 import { renderMapConfig } from '../terrain/MapConfigRenderer';
 import { ensureAssetsLoaded } from '../data/asset-loader';
@@ -55,6 +56,7 @@ const GRID_SPACING_Y = 35;
 
 export class VillageScene extends Phaser.Scene {
   private buildings: Building[] = [];
+  private landmarks: Landmark[] = [];
   private heroes = new Map<string, HeroSprite>();
   private onAgentsUpdated: ((agents: unknown) => void) | null = null;
   private onCameraFollow: ((agentId: unknown) => void) | null = null;
@@ -434,6 +436,7 @@ export class VillageScene extends Phaser.Scene {
       }
       this.heroes.clear();
       this.buildings = [];
+      this.landmarks = [];
       this.buildingSlots.clear();
       this.heroBuildingMap.clear();
       this.parentChildren.clear();
@@ -523,6 +526,11 @@ export class VillageScene extends Phaser.Scene {
       resetRoadNetwork();
     }
 
+    // Landmarks (e.g. the C-LEVEL Council) render in both paths — they are not
+    // editor-managed, so they are spawned unconditionally after the terrain
+    // and activity buildings are in place.
+    this.spawnLandmarks();
+
     // Buildings are now spawned — process any buffered agent updates
     this.buildingsReady = true;
     if (this.pendingAgentUpdate !== null) {
@@ -583,6 +591,12 @@ export class VillageScene extends Phaser.Scene {
         ? { ...def, x: override.x, y: override.y }
         : def;
       this.buildings.push(new Building(this, resolved));
+    }
+  }
+
+  private spawnLandmarks(): void {
+    for (const def of LANDMARK_DEFS) {
+      this.landmarks.push(new Landmark(this, def));
     }
   }
 

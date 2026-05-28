@@ -67,3 +67,45 @@ export function getBuildingForActivity(activity: AgentActivity): BuildingDef {
   const building = BUILDING_DEFS.find((b) => b.activity === activity);
   return building ?? BUILDING_DEFS.find((b) => b.activity === 'idle')!;
 }
+
+/**
+ * A landmark is a fixed structure that exists for meaning, not for activity
+ * routing. Unlike {@link BuildingDef} it has no `activity` — heroes never walk
+ * to it, so it is deliberately excluded from {@link getBuildingForActivity}.
+ * `seats` names the C-LEVEL roles the structure is reserved for; the renderer
+ * lays out one marker per seat.
+ */
+export interface LandmarkDef {
+  id: string;
+  label: string;
+  x: number;
+  y: number;
+  imageKey: string;
+  scale: number;
+  description: string;
+  seats: string[];
+}
+
+/**
+ * C-LEVEL Council — the executive/advisory tier (CEO, CFO, CSO, Architect),
+ * distinct from the worker heroes that cycle through the activity buildings.
+ *
+ * Placed north-centre above the plaza so the south→north axis (gate → plaza →
+ * worker buildings → council) reads as a vertical hierarchy with the council at
+ * the apex. `y` stays inside the default camera view (the village fit is ~700px
+ * tall centred on the plaza), so the citadel is on-screen without zooming out.
+ * Detection/routing of live C-LEVEL agents into these seats is intentionally
+ * out of scope — this reserves the space only.
+ */
+export const LANDMARK_DEFS: LandmarkDef[] = [
+  {
+    id: 'council',
+    label: 'C-LEVEL',
+    x: 1400,
+    y: 480,
+    imageKey: 'landmark-council',
+    scale: 0.6,
+    description: 'The C-LEVEL council — where the CEO, CFO, CSO, and Architect preside',
+    seats: ['CEO', 'CFO', 'CSO', 'Architect'],
+  },
+];

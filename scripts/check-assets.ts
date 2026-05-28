@@ -17,7 +17,7 @@ import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { tinySwordsCc0Theme } from '../client/src/game/themes/tiny-swords-cc0';
-import { BUILDING_DEFS } from '../client/src/game/data/building-layout';
+import { BUILDING_DEFS, LANDMARK_DEFS } from '../client/src/game/data/building-layout';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = resolve(__dirname, '..', 'client', 'public');
@@ -35,6 +35,10 @@ function collectExpected(): Expected[] {
 
   for (const def of BUILDING_DEFS) {
     out.push({ path: theme.getBuildingImage(def.id), source: `building:${def.id}` });
+  }
+
+  for (const def of LANDMARK_DEFS) {
+    out.push({ path: theme.getBuildingImage(def.id), source: `landmark:${def.id}` });
   }
 
   for (const e of theme.getHeroPreload()) {
