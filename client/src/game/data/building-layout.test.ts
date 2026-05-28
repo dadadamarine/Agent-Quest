@@ -15,6 +15,15 @@ const findCouncil = () => {
   return council;
 };
 
+// Fail fast so every connector test reads as a clear assertion failure rather
+// than a downstream TypeError on an undefined connector.
+const findCouncilConnector = () => {
+  const connector = findCouncil().connector;
+  if (connector === undefined) throw new Error('council connector missing');
+  if (connector.points.length < 2) throw new Error('council connector needs at least 2 points');
+  return connector;
+};
+
 describe('LANDMARK_DEFS — C-LEVEL Council', () => {
   test('exposes a council landmark', () => {
     expect(LANDMARK_DEFS.map((landmark) => landmark.id)).toContain('council');
@@ -50,6 +59,45 @@ describe('LANDMARK_DEFS — C-LEVEL Council', () => {
     const buildingIds = new Set(BUILDING_DEFS.map((building) => building.id));
     for (const landmark of LANDMARK_DEFS) {
       expect(buildingIds.has(landmark.id)).toBe(false);
+    }
+  });
+});
+
+describe('LANDMARK_DEFS — Council connector road', () => {
+  test('the council declares a connector road with at least 2 points', () => {
+    expect(() => findCouncilConnector()).not.toThrow();
+  });
+
+  test('connects the plaza hub to the council base along the central axis', () => {
+    const council = findCouncil();
+    const connector = findCouncilConnector();
+    const start = connector.points[0]!;
+    const end = connector.points[connector.points.length - 1]!;
+    // starts at the plaza hub
+    expect(start.x).toBe(PLAZA.x);
+    expect(start.y).toBe(PLAZA.y);
+    // ends at the council base — must track the council position
+    expect(end.x).toBe(council.x);
+    expect(end.y).toBe(council.y);
+  });
+
+  test('runs straight up a single vertical axis (constant x)', () => {
+    const xs = new Set(findCouncilConnector().points.map((point) => point.x));
+    expect(xs.size).toBe(1);
+  });
+
+  test('uses a valid road style and a positive width', () => {
+    const connector = findCouncilConnector();
+    expect(['main', 'secondary', 'trail', 'plaza']).toContain(connector.style);
+    expect(connector.width).toBeGreaterThan(0);
+  });
+
+  test('stays within the world bounds', () => {
+    for (const point of findCouncilConnector().points) {
+      expect(point.x).toBeGreaterThan(0);
+      expect(point.x).toBeLessThan(WORLD_WIDTH);
+      expect(point.y).toBeGreaterThan(0);
+      expect(point.y).toBeLessThan(WORLD_HEIGHT);
     }
   });
 });

@@ -69,11 +69,31 @@ export function getBuildingForActivity(activity: AgentActivity): BuildingDef {
 }
 
 /**
+ * Road styles, mirroring the editor's `PathSegment['style']` palette. Kept as a
+ * standalone union (rather than importing the editor schema into core game
+ * data) — a landmark connector flows through `drawPath(PathSegment)`, so tsc
+ * enforces compatibility at that call site and silent drift can't compile.
+ */
+export type RoadStyle = 'main' | 'secondary' | 'trail' | 'plaza';
+
+/**
+ * A decorative road that visually ties a landmark into the village. It is drawn
+ * behind the structures and is NOT part of the hero pathfinding graph — heroes
+ * never walk to landmarks, so the connector exists for visual hierarchy only.
+ * The last point should sit at the landmark base so the road meets the structure.
+ */
+export interface LandmarkConnector {
+  points: Array<{ x: number; y: number }>;
+  width: number;
+  style: RoadStyle;
+}
+
+/**
  * A landmark is a fixed structure that exists for meaning, not for activity
  * routing. Unlike {@link BuildingDef} it has no `activity` — heroes never walk
  * to it, so it is deliberately excluded from {@link getBuildingForActivity}.
  * `seats` names the C-LEVEL roles the structure is reserved for; the renderer
- * lays out one marker per seat.
+ * lays out one marker per seat. `connector` is an optional decorative road.
  */
 export interface LandmarkDef {
   id: string;
@@ -84,6 +104,7 @@ export interface LandmarkDef {
   scale: number;
   description: string;
   seats: string[];
+  connector?: LandmarkConnector;
 }
 
 /**
@@ -97,15 +118,29 @@ export interface LandmarkDef {
  * Detection/routing of live C-LEVEL agents into these seats is intentionally
  * out of scope — this reserves the space only.
  */
+/** Single source of truth for the council position — referenced by both the
+ * landmark coordinates and its connector road endpoint so they cannot drift. */
+export const COUNCIL_POSITION = { x: 1400, y: 480 } as const;
+
 export const LANDMARK_DEFS: LandmarkDef[] = [
   {
     id: 'council',
     label: 'C-LEVEL',
-    x: 1400,
-    y: 480,
+    x: COUNCIL_POSITION.x,
+    y: COUNCIL_POSITION.y,
     imageKey: 'landmark-council',
     scale: 0.6,
     description: 'The C-LEVEL council — where the CEO, CFO, CSO, and Architect preside',
     seats: ['CEO', 'CFO', 'CSO', 'Architect'],
+    // Ceremonial avenue straight up the central axis from the plaza hub to the
+    // council base, completing the south→north hierarchy.
+    connector: {
+      points: [
+        { x: PLAZA.x, y: PLAZA.y },
+        { x: COUNCIL_POSITION.x, y: COUNCIL_POSITION.y },
+      ],
+      width: 48,
+      style: 'main',
+    },
   },
 ];
