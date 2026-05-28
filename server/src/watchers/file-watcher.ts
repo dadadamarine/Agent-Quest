@@ -1,7 +1,9 @@
 import { readdir, stat } from 'node:fs/promises';
+import { watch, type FSWatcher } from 'node:fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 
+import { ScanScheduler } from './scan-scheduler';
 import type { SubagentContext } from '../types';
 
 export interface WatcherCallbacks {
@@ -25,19 +27,34 @@ export interface WatcherOptions extends WatcherCallbacks {
   maxAgeMs?: number;
   /** Claude config directories to watch. If omitted, auto-discovers ~/.claude* dirs with a projects/ subdir. */
   claudeDirs?: string[];
+  /** Safety-net poll interval (ms). fs.watch drives the fast path; this only
+   * catches events fs.watch missed. Default: 4000. */
+  pollIntervalMs?: number;
+  /** Debounce window for coalescing fs.watch bursts before a rescan (ms). Default: 100. */
+  watchDebounceMs?: number;
+  /** Attach fs.watch for instant reaction. Default: true. Tests that drive
+   * scans manually disable this to stay deterministic. */
+  watchEnabled?: boolean;
 }
 
 export class FileWatcher {
   private claudeDirs: string[];
   private fileSizes = new Map<string, number>();
-  private pollInterval: ReturnType<typeof setInterval> | null = null;
   private callbacks: WatcherCallbacks;
   private maxAgeMs: number;
+  private readonly pollIntervalMs: number;
+  private readonly watchDebounceMs: number;
+  private readonly watchEnabled: boolean;
+  private scheduler: ScanScheduler | null = null;
+  private fsWatchers: FSWatcher[] = [];
 
   constructor(opts: WatcherOptions) {
     this.callbacks = opts;
     this.maxAgeMs = opts.maxAgeMs ?? 30 * 60 * 1000;
     this.claudeDirs = opts.claudeDirs ?? [];
+    this.pollIntervalMs = opts.pollIntervalMs ?? 4000;
+    this.watchDebounceMs = opts.watchDebounceMs ?? 100;
+    this.watchEnabled = opts.watchEnabled ?? true;
   }
 
   /** Find every ~/.claudeXXX directory that contains a projects/ subdir. */
@@ -64,26 +81,51 @@ export class FileWatcher {
     return dirs;
   }
 
-  async start(intervalMs = 2000): Promise<void> {
+  async start(): Promise<void> {
     if (this.claudeDirs.length === 0) {
       this.claudeDirs = await FileWatcher.autoDiscoverDirs();
     }
 
-    await this.scan();
+    this.scheduler = new ScanScheduler({
+      scan: () => this.scan(),
+      debounceMs: this.watchDebounceMs,
+      pollMs: this.pollIntervalMs,
+      label: 'ClaudeProvider',
+    });
 
-    this.pollInterval = setInterval(() => {
-      this.scan().catch((err) => {
-        console.error('[ClaudeProvider] scan error:', err);
-      });
-    }, intervalMs);
+    // fs.watch is a best-effort fast path. A failed watch must never stop the
+    // initial scan or the safety-net poll from running.
+    if (this.watchEnabled) this.setupFsWatchers();
+
+    await this.scheduler.start();
 
     if (this.claudeDirs.length === 0) {
       // Per-provider diagnostic only. If *both* providers end up empty, the
       // bootstrap in index.ts prints a single aggregated warning.
       console.log('[ClaudeProvider] no ~/.claude* dir — provider inactive');
     } else {
-      console.log(`[ClaudeProvider] watching ${this.claudeDirs.length} config dir(s) every ${intervalMs}ms:`);
+      console.log(`[ClaudeProvider] watching ${this.claudeDirs.length} config dir(s) (fs.watch + ${this.pollIntervalMs}ms safety poll):`);
       for (const d of this.claudeDirs) console.log(`  - ${d}`);
+    }
+  }
+
+  /** Attach a recursive fs.watch to each config dir's projects/ tree. Any event
+   * coalesces into a debounced rescan. A missing projects/ (or a platform that
+   * rejects the watch) is tolerated — the safety-net poll still covers it. */
+  private setupFsWatchers(): void {
+    for (const claudeDir of this.claudeDirs) {
+      const projectsDir = join(claudeDir, 'projects');
+      try {
+        const fsWatcher = watch(projectsDir, { recursive: true }, () => {
+          this.scheduler?.request();
+        });
+        fsWatcher.on('error', (err) => {
+          console.warn(`[ClaudeProvider] fs.watch error on ${projectsDir} (poll fallback active):`, err);
+        });
+        this.fsWatchers.push(fsWatcher);
+      } catch (err) {
+        console.warn(`[ClaudeProvider] cannot watch ${projectsDir} (poll fallback active):`, err);
+      }
     }
   }
 
@@ -93,10 +135,16 @@ export class FileWatcher {
   }
 
   stop(): void {
-    if (this.pollInterval !== null) {
-      clearInterval(this.pollInterval);
-      this.pollInterval = null;
+    this.scheduler?.stop();
+    this.scheduler = null;
+    for (const fsWatcher of this.fsWatchers) {
+      try {
+        fsWatcher.close();
+      } catch {
+        // Already closed or never opened — nothing to do.
+      }
     }
+    this.fsWatchers = [];
   }
 
   async scan(): Promise<void> {
@@ -191,8 +239,20 @@ export class FileWatcher {
       const fd = Bun.file(filePath);
       const newBytes = fd.slice(previousSize, currentSize);
       const newContent = await newBytes.text();
-      this.fileSizes.set(filePath, currentSize);
-      this.callbacks.onSessionUpdate(sessionId, filePath, newContent, claudeDir, subagentCtx);
+
+      // Guard against partial JSONL writes: an fs.watch-driven scan can catch
+      // Claude mid-write, so the tail may not end with '\n'. Process only up to
+      // the last newline and hold back the trailing partial bytes until a later
+      // scan completes the line — otherwise advancing fileSizes past a half-line
+      // would permanently drop the event on that line.
+      const lastNewlineIndex = newContent.lastIndexOf('\n');
+      if (lastNewlineIndex === -1) return; // no complete line yet — don't advance
+      const complete = newContent.slice(0, lastNewlineIndex + 1);
+
+      // Advance by the BYTE length of the processed chunk (not char length) so
+      // the offset stays correct for multi-byte UTF-8 content.
+      this.fileSizes.set(filePath, previousSize + Buffer.byteLength(complete, 'utf8'));
+      this.callbacks.onSessionUpdate(sessionId, filePath, complete, claudeDir, subagentCtx);
     }
   }
 }

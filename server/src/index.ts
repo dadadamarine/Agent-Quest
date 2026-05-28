@@ -28,9 +28,26 @@ function listLanAddresses(): string[] {
   return out;
 }
 
+/** Read a positive-integer env var, falling back when unset/invalid/too small. */
+function intEnv(name: string, fallback: number, min: number): number {
+  const raw = process.env[name];
+  if (raw === undefined) return fallback;
+  const value = Number(raw);
+  if (!Number.isFinite(value) || value < min) {
+    console.warn(`[Server] ${name}="${raw}" invalid (expected integer ≥ ${min}); using ${fallback}`);
+    return fallback;
+  }
+  return Math.floor(value);
+}
+
 const PORT = Number(process.env.PORT) || 4444;
 const CLIENT_URL = process.env.CLIENT_URL ?? 'http://localhost:4445';
 const LAN_ENABLED = /^(1|true|yes|on)$/i.test(process.env.AGENT_QUEST_LAN ?? '');
+// Latency tuning (CPU/IO trade-off): fs.watch drives the fast path, so the
+// poll is a slow safety net for events the watch missed. Lower POLL_MS reacts
+// faster to missed events at the cost of more idle full-tree scans.
+const SAFETY_POLL_MS = intEnv('AGENT_QUEST_POLL_MS', 4000, 500);
+const WATCH_DEBOUNCE_MS = intEnv('AGENT_QUEST_WATCH_DEBOUNCE_MS', 100, 10);
 const IDLE_THRESHOLD_MS = 5 * 60_000;       // 5 minutes without events → idle
 const COMPLETED_THRESHOLD_MS = 30 * 60_000; // 30 minutes idle → completed
 const STALE_THRESHOLD_MS = 2 * 60 * 60_000; // 2 hours completed → remove (keep min 5)
@@ -160,8 +177,16 @@ const providerHandlers: ProviderHandlers = {
   },
 };
 
-const claudeProvider = new ClaudeProvider({ maxAgeMs: SESSION_MAX_AGE_MS });
-const codexProvider = new CodexProvider({ maxAgeMs: SESSION_MAX_AGE_MS });
+const claudeProvider = new ClaudeProvider({
+  maxAgeMs: SESSION_MAX_AGE_MS,
+  pollIntervalMs: SAFETY_POLL_MS,
+  watchDebounceMs: WATCH_DEBOUNCE_MS,
+});
+const codexProvider = new CodexProvider({
+  maxAgeMs: SESSION_MAX_AGE_MS,
+  scanIntervalMs: SAFETY_POLL_MS,
+  watchDebounceMs: WATCH_DEBOUNCE_MS,
+});
 
 function allConfigDirs(): string[] {
   return [...claudeProvider.getConfigDirs(), ...codexProvider.getConfigDirs()];

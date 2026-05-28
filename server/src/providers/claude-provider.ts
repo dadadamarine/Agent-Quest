@@ -8,7 +8,12 @@ import type { ProviderHandlers, SessionProvider } from './types';
 export interface ClaudeProviderOptions {
   claudeDirs?: string[];
   maxAgeMs?: number;
+  /** Safety-net poll interval (ms). fs.watch drives the fast path. */
   pollIntervalMs?: number;
+  /** Debounce window for coalescing fs.watch bursts (ms). */
+  watchDebounceMs?: number;
+  /** Attach fs.watch for instant reaction (default true). */
+  watchEnabled?: boolean;
 }
 
 export class ClaudeProvider implements SessionProvider {
@@ -25,6 +30,9 @@ export class ClaudeProvider implements SessionProvider {
     const watcher = new FileWatcher({
       maxAgeMs: this.opts.maxAgeMs,
       claudeDirs: this.opts.claudeDirs,
+      pollIntervalMs: this.opts.pollIntervalMs,
+      watchDebounceMs: this.opts.watchDebounceMs,
+      watchEnabled: this.opts.watchEnabled,
 
       onNewSession: async (sessionId, filePath, configDir, subagentCtx) => {
         const contents = await Bun.file(filePath).text();
@@ -61,7 +69,7 @@ export class ClaudeProvider implements SessionProvider {
     });
 
     this.watcher = watcher;
-    await watcher.start(this.opts.pollIntervalMs ?? 2000);
+    await watcher.start();
   }
 
   stop(): void {
