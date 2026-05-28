@@ -74,6 +74,12 @@ export interface PartyEntry {
    * its parent (no connector line, no forced clustering).
    */
   label: string;
+  /**
+   * Hierarchy depth: 0 for a top-level agent, 1 for a sub-agent grouped under
+   * its parent. The Party Bar indents rows by depth so the parent → child
+   * relationship reads as a tree.
+   */
+  depth: number;
 }
 
 /** 0 -> "a", 1 -> "b", … 25 -> "z", 26 -> "aa". */
@@ -97,9 +103,16 @@ function siblingLetter(index: number): string {
  * `<parentNumber>-<letter>` in stable id order (1-a, 1-b, …).
  */
 export function computePartyOrder(agents: AgentState[]): PartyEntry[] {
-  const presentIds = new Set(agents.map((a) => a.id));
-  const isAttachedSub = (a: AgentState): boolean =>
-    a.isSubagent && a.parentSessionId !== undefined && presentIds.has(a.parentSessionId);
+  const byId = new Map(agents.map((a) => [a.id, a] as const));
+  // A sub-agent is "attached" only when its parent is present AND is itself a
+  // top-level agent. This guarantees every agent is emitted exactly once: a
+  // sub-agent whose parent is missing, or whose parent is itself a sub-agent
+  // (nested), falls back into the numbered backbone instead of being dropped.
+  const isAttachedSub = (a: AgentState): boolean => {
+    if (!a.isSubagent || a.parentSessionId === undefined) return false;
+    const parent = byId.get(a.parentSessionId);
+    return parent !== undefined && !parent.isSubagent;
+  };
 
   const backbone = agents
     .filter((a) => !isAttachedSub(a))
@@ -120,11 +133,11 @@ export function computePartyOrder(agents: AgentState[]): PartyEntry[] {
   const entries: PartyEntry[] = [];
   backbone.forEach((parent, i) => {
     const num = String(i + 1);
-    entries.push({ agent: parent, label: num });
+    entries.push({ agent: parent, label: num, depth: 0 });
     const kids = childrenByParent.get(parent.id);
     if (kids !== undefined) {
       kids.forEach((kid, k) => {
-        entries.push({ agent: kid, label: `${num}-${siblingLetter(k)}` });
+        entries.push({ agent: kid, label: `${num}-${siblingLetter(k)}`, depth: 1 });
       });
     }
   });

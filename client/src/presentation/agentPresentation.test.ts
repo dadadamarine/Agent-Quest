@@ -189,4 +189,47 @@ describe('computePartyOrder', () => {
     ];
     expect(computePartyOrder(agents)).toEqual(computePartyOrder(agents));
   });
+
+  it('tags depth 0 for top-level agents and depth 1 for sub-agents', () => {
+    const byId = new Map(
+      computePartyOrder([
+        makeAgent({ id: 'parent', status: 'active' }),
+        makeAgent({ id: 'agent-a', status: 'active', isSubagent: true, parentSessionId: 'parent' }),
+      ]).map((e) => [e.agent.id, e.depth]),
+    );
+    expect(byId.get('parent')).toBe(0);
+    expect(byId.get('agent-a')).toBe(1);
+  });
+
+  it('rolls sibling letters past z (27th sub-agent is "1-aa")', () => {
+    const parent = makeAgent({ id: 'parent', status: 'active' });
+    // 27 sub-agents with zero-padded ids so lexicographic sort == creation order.
+    const subs = Array.from({ length: 27 }, (_, i) =>
+      makeAgent({
+        id: `agent-${String(i).padStart(2, '0')}`,
+        status: 'active',
+        isSubagent: true,
+        parentSessionId: 'parent',
+      }),
+    );
+    const labels = labelsById([parent, ...subs]);
+    expect(labels.get('agent-00')).toBe('1-a');
+    expect(labels.get('agent-25')).toBe('1-z');
+    expect(labels.get('agent-26')).toBe('1-aa');
+  });
+
+  it('never drops a nested grandchild — its parent is a sub-agent, so it gets its own number', () => {
+    // parent(top) -> child(sub) -> grandchild(sub whose parent is the child).
+    // The grandchild cannot attach (its parent is itself a sub-agent), so it
+    // must fall back to the numbered backbone rather than vanish.
+    const labels = labelsById([
+      makeAgent({ id: 'parent', status: 'active' }),
+      makeAgent({ id: 'agent-child', status: 'active', isSubagent: true, parentSessionId: 'parent' }),
+      makeAgent({ id: 'agent-grand', status: 'active', isSubagent: true, parentSessionId: 'agent-child' }),
+    ]);
+    expect(labels.get('parent')).toBe('1');
+    expect(labels.get('agent-child')).toBe('1-a');
+    // grandchild present (not dropped) with a plain backbone number.
+    expect(labels.get('agent-grand')).toBe('2');
+  });
 });

@@ -12,7 +12,12 @@ import './ActivityFeed.css';
 
 interface ActivityFeedProps {
   log: ActivityLogEntry[];
+  /** Full snapshot — used for name/avatar lookup, including agents whose log
+   *  entries persist after they leave the presentation projection. */
   agents: AgentState[];
+  /** Presentation projection — the SAME input PartyBar and the village scene
+   *  use, so party-number labels (1-a) stay consistent across all surfaces. */
+  presentationAgents: AgentState[];
   selectedAgentId: string | null;
   onSelectAgent: (id: string) => void;
   showSourceBadge: boolean;
@@ -20,7 +25,7 @@ interface ActivityFeedProps {
 
 const SCROLL_PIN_THRESHOLD_PX = 8;
 
-export function ActivityFeed({ log, agents, selectedAgentId, onSelectAgent, showSourceBadge }: ActivityFeedProps) {
+export function ActivityFeed({ log, agents, presentationAgents, selectedAgentId, onSelectAgent, showSourceBadge }: ActivityFeedProps) {
   const [prefs, updatePrefs] = useFeedPrefs();
   const { foldState, activeHighlights, agentFilter } = prefs;
 
@@ -60,9 +65,12 @@ export function ActivityFeed({ log, agents, selectedAgentId, onSelectAgent, show
 
   const agentIndexMap = useMemo(() => {
     const m = new Map<string, string>();
-    for (const { agent, label } of computePartyOrder(agents)) m.set(agent.id, label);
+    // Label over the presentation projection (not the raw `agents` snapshot) so
+    // a sub-agent's "1-a" number matches the Party Bar and village scene, which
+    // both label over the same projection.
+    for (const { agent, label } of computePartyOrder(presentationAgents)) m.set(agent.id, label);
     return m;
-  }, [agents]);
+  }, [presentationAgents]);
 
   const resolveName = useCallback(
     (agentId: string) => {

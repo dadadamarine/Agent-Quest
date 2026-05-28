@@ -18,13 +18,18 @@ const FLASH_DURATION_MS = 400;
 interface PartyRowProps {
   agent: AgentState;
   index: string;
+  /** Hierarchy depth (0 = top-level, 1 = sub-agent). Drives the row indent. */
+  depth: number;
   mode: 'full' | 'icons';
   isSelected: boolean;
   onClick: () => void;
   showSourceBadge: boolean;
 }
 
-function PartyRow({ agent, index, mode, isSelected, onClick, showSourceBadge }: PartyRowProps) {
+/** Pixels each hierarchy level indents a row so sub-agents nest under parents. */
+const DEPTH_INDENT_PX = 18;
+
+function PartyRow({ agent, index, depth, mode, isSelected, onClick, showSourceBadge }: PartyRowProps) {
   const [flashing, setFlashing] = useState(false);
   const prevSelected = useRef(isSelected);
 
@@ -43,16 +48,24 @@ function PartyRow({ agent, index, mode, isSelected, onClick, showSourceBadge }: 
     `mode-${mode}`,
     isSelected ? 'selected' : '',
     flashing ? 'flashing' : '',
+    depth > 0 ? 'subrow' : '',
   ].filter(Boolean).join(' ');
 
   const title = mode === 'icons'
     ? `${agent.name} · ${agent.currentActivity}`
     : undefined;
 
+  // Indent sub-agent rows so the parent → child hierarchy reads as a tree.
+  // Only in `full` mode — the collapsed `icons` strip stays flush.
+  const rowStyle = depth > 0 && mode === 'full'
+    ? { marginLeft: `${depth * DEPTH_INDENT_PX}px` }
+    : undefined;
+
   return (
     <button
       type="button"
       className={classes}
+      style={rowStyle}
       onClick={onClick}
       aria-label={`Select ${agent.name}${showSourceBadge ? ` (${agent.source})` : ''}, ${agent.currentActivity}`}
       aria-current={isSelected ? 'true' : undefined}
@@ -116,10 +129,10 @@ export function PartyBar({ agents, selectedAgentId, onSelectAgent, showSourceBad
   const [prefs, updatePrefs] = usePartyPrefs();
   const mode: 'full' | 'icons' = prefs.foldState;
 
-  // `agents` is the App-level presentation projection — it already excludes
-  // `error` / `waiting`, and only includes `completed` when the TopBar toggle
-  // is on. computePartyOrder status-sorts the backbone (active first) and groups
-  // each parent's sub-agents right after it with inherited "1-a" labels.
+  // `agents` is the App-level presentation projection: `active` / `idle` /
+  // `waiting` always pass, `completed` only when the TopBar toggle is on, and
+  // `error` is filtered out. computePartyOrder status-sorts the backbone (active
+  // first) and groups each parent's sub-agents right after it with "1-a" labels.
   const entries = computePartyOrder(agents);
   const activeCount = agents.filter((a) => a.status === 'active').length;
   const idleCount = agents.filter((a) => a.status === 'idle').length;
@@ -154,11 +167,12 @@ export function PartyBar({ agents, selectedAgentId, onSelectAgent, showSourceBad
       </div>
 
       <div className="partybar-list">
-        {entries.map(({ agent, label }) => (
+        {entries.map(({ agent, label, depth }) => (
           <PartyRow
             key={agent.id}
             agent={agent}
             index={label}
+            depth={depth}
             mode={mode}
             isSelected={agent.id === selectedAgentId}
             onClick={() => handleClick(agent.id)}

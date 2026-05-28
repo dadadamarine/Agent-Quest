@@ -659,11 +659,12 @@ export class VillageScene extends Phaser.Scene {
 
     const now = Date.now();
 
-    // App-level presentation projection already excludes `waiting` / `error`,
-    // and gates `completed` behind the TopBar toggle. The scene applies two
-    // additional local policies: hide `error` defensively, and drop heroes
-    // that have been idle for longer than IDLE_HIDE_THRESHOLD_MS so the
-    // village doesn't grow unbounded over a long-lived session.
+    // App-level presentation projection passes `active` / `idle` / `waiting`,
+    // gates `completed` behind the TopBar toggle, and filters out `error`. The
+    // scene applies two additional local policies: hide `error` defensively,
+    // and drop heroes idle longer than IDLE_HIDE_THRESHOLD_MS so the village
+    // doesn't grow unbounded over a long-lived session. (Party labels are still
+    // computed over the full projection above, so numbers match the Party Bar.)
     const visible = agents.filter((a) => {
       if (a.status === 'error') return false;
       if (a.status === 'idle' && now - a.lastEvent > IDLE_HIDE_THRESHOLD_MS) return false;
@@ -760,9 +761,12 @@ export class VillageScene extends Phaser.Scene {
     }
 
     // Assign party labels: top-level heroes get "1", "2", …; sub-agents inherit
-    // their parent's number with a letter suffix ("1-a"). computePartyOrder is
-    // the single source so the hero marker, Party Bar, and Activity Feed agree.
-    for (const { agent, label } of computePartyOrder(visible)) {
+    // their parent's number with a letter suffix ("1-a"). Label over the full
+    // received projection (same input the Party Bar uses) rather than the
+    // scene-local `visible` subset, so a hero's number matches the Party Bar row
+    // even when the scene hides long-idle heroes. setIndex is a no-op for heroes
+    // that were filtered out of the scene (they have no sprite).
+    for (const { agent, label } of computePartyOrder(agents)) {
       this.heroes.get(agent.id)?.setIndex(label);
     }
 

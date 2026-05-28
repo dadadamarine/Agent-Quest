@@ -172,6 +172,7 @@ export default function App() {
           <ActivityFeed
             log={activityLog}
             agents={agents}
+            presentationAgents={presentationAgents}
             selectedAgentId={selectedAgentId}
             onSelectAgent={handleSelectAgent}
             showSourceBadge={showSourceBadge}
