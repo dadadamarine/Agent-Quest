@@ -16,7 +16,7 @@ export interface WatcherCallbacks {
     completeContent: string,
     configDir: string,
     subagentCtx: SubagentContext,
-  ) => void;
+  ) => void | Promise<void>;
   onSessionUpdate: (
     sessionId: string,
     projectPath: string,
@@ -250,7 +250,7 @@ export class FileWatcher {
       const complete = lastNewlineIndex === -1 ? '' : text.slice(0, lastNewlineIndex + 1);
       this.fileSizes.set(filePath, Buffer.byteLength(complete, 'utf8'));
       if (this.stopped) return; // stop() landed during the awaited read — don't emit
-      this.callbacks.onNewSession(sessionId, filePath, complete, claudeDir, subagentCtx);
+      await this.callbacks.onNewSession(sessionId, filePath, complete, claudeDir, subagentCtx);
     } else if (currentSize > previousSize) {
       // File grew — read only the new bytes
       const fd = Bun.file(filePath);
