@@ -52,8 +52,9 @@ export interface AutoCameraControllerOptions {
    * mode is unchanged and every tracked hero stays inside this box, the camera
    * holds its center instead of chasing every step — it only reframes once a
    * hero leaves the box. Smaller = tighter box = reframes sooner. A single
-   * threshold (no separate enter/exit) is enough because once a reframe starts
-   * the lerp pulls the hero back toward the box center, which self-settles. */
+   * threshold (no separate enter/exit) keeps the policy simple: once a hero
+   * leaves and a reframe starts, the lerp pulls it back toward the box center,
+   * which limits oscillation in practice. */
   readonly deadzoneRatio: number;
   readonly enabled: boolean;
 }
@@ -68,6 +69,12 @@ export class AutoCameraController {
    * never suppressed by heroes that happen to sit inside the old box. Null while
    * disabled/paused so the first resumed frame also reframes cleanly. */
   private lastAppliedMode: AutoCameraMode | null = null;
+  /** Set when the tracked set changes membership (a hero joins/leaves, not just
+   * moves). The next update bypasses the deadzone once so the camera reframes to
+   * the new subject instead of holding on the old one — a same-mode target swap
+   * (focus hero A → focus hero B) would otherwise be suppressed if B happens to
+   * sit inside the box that was framing A. */
+  private targetsChanged = false;
 
   constructor(camera: ControllableCamera, options: AutoCameraControllerOptions) {
     this.camera = camera;
@@ -84,8 +91,14 @@ export class AutoCameraController {
   }
 
   /** Active heroes to track. Pass live HeroSprite refs (they satisfy
-   * CameraTarget via x/y getters) so moving agents are followed each frame. */
+   * CameraTarget via x/y getters) so moving agents are followed each frame.
+   * A change in membership (different set of refs, by identity) flags a one-shot
+   * deadzone bypass; a same-set call with moved refs does not, so live movement
+   * stays subject to the deadzone. */
   setActiveTargets(targets: readonly CameraTarget[]): void {
+    if (!sameMembership(this.targets, targets)) {
+      this.targetsChanged = true;
+    }
     this.targets = targets;
   }
 
@@ -111,11 +124,13 @@ export class AutoCameraController {
 
     // Decide whether to hold the center BEFORE touching zoom, so the deadzone is
     // judged against the world extent the user currently sees (viewport / zoom).
-    // Hold only while the mode is steady — a mode change (focus→group, etc.)
-    // always reframes. Overview has no tracked target, so it never holds.
-    const modeChanged = step.mode !== this.lastAppliedMode;
+    // Hold only while the framing subject is steady — a mode change (focus→group)
+    // or a target swap (focus hero A→B) always reframes. Overview has no tracked
+    // target, so it never holds.
+    const reframe = step.mode !== this.lastAppliedMode || this.targetsChanged;
+    this.targetsChanged = false;
     const holdCenter =
-      !modeChanged &&
+      !reframe &&
       (step.mode === 'focus' || step.mode === 'group') &&
       isWithinDeadzone(
         this.targets,
@@ -165,4 +180,19 @@ export class AutoCameraController {
   destroy(): void {
     this.targets = [];
   }
+}
+
+/** True when two target lists track the same set of objects (by identity),
+ * regardless of order. Moving the same refs counts as "same"; a hero joining or
+ * leaving counts as "changed". */
+function sameMembership(
+  a: readonly CameraTarget[],
+  b: readonly CameraTarget[],
+): boolean {
+  if (a.length !== b.length) return false;
+  const seen = new Set(a);
+  for (const target of b) {
+    if (!seen.has(target)) return false;
+  }
+  return true;
 }

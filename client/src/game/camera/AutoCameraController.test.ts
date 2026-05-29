@@ -136,12 +136,15 @@ describe('AutoCameraController', () => {
     it('holds the center while a focused hero only jitters inside the box', () => {
       const cam = makeCamera();
       const controller = new AutoCameraController(cam, makeOptions(true, 0.7));
-      controller.setActiveTargets([{ x: 1400, y: 900 }]); // starts at the camera center
+      // Same live ref throughout: moving it is "jitter", not a target swap.
+      const hero = { x: 1400, y: 900 }; // starts at the camera center
+      controller.setActiveTargets([hero]);
       settle(controller);
       const cx = cam.midPoint.x;
       const cy = cam.midPoint.y;
       // Nudge the hero a little — still well inside the 70% follow box.
-      controller.setActiveTargets([{ x: cx + 30, y: cy + 20 }]);
+      hero.x = cx + 30;
+      hero.y = cy + 20;
       controller.update(20_100);
       expect(cam.midPoint.x).toBe(cx);
       expect(cam.midPoint.y).toBe(cy);
@@ -150,11 +153,12 @@ describe('AutoCameraController', () => {
     it('reframes once a focused hero leaves the box', () => {
       const cam = makeCamera();
       const controller = new AutoCameraController(cam, makeOptions(true, 0.7));
-      controller.setActiveTargets([{ x: 1400, y: 900 }]);
+      const hero = { x: 1400, y: 900 };
+      controller.setActiveTargets([hero]);
       settle(controller);
       const cx = cam.midPoint.x;
       // Half-box at zoom 1.15 is ~0.7 × (1280/1.15/2) ≈ 389 px; 600 is outside.
-      controller.setActiveTargets([{ x: cx + 600, y: 900 }]);
+      hero.x = cx + 600;
       controller.update(20_100);
       expect(cam.midPoint.x).toBeGreaterThan(cx);
     });
@@ -171,20 +175,52 @@ describe('AutoCameraController', () => {
       expect(cam.midPoint.y).toBeGreaterThan(100);
     });
 
-    it('bypasses the deadzone on a mode change so a fresh framing is not suppressed', () => {
+    it('bypasses the deadzone on a mode change, moving the center to the new framing', () => {
       const cam = makeCamera();
       const controller = new AutoCameraController(cam, makeOptions(true, 0.7));
       controller.setActiveTargets([{ x: 1400, y: 900 }]); // focus, settles at center
       settle(controller);
       const cx = cam.midPoint.x;
-      // Two heroes spread apart → group. Their midpoint is the camera center, so
-      // both sit inside the old focus box, yet the mode change must still reframe
-      // (group zoom differs), proving the deadzone is bypassed on the first frame.
-      const zoomBefore = cam.zoom;
-      controller.setActiveTargets([{ x: 900, y: 600 }, { x: 1900, y: 1200 }]);
+      // Two heroes both inside the old focus box but offset to one side, so the
+      // group goal center differs from the held center. A held (un-bypassed)
+      // deadzone would keep cx; the mode change must reframe toward the group.
+      controller.setActiveTargets([{ x: 1480, y: 980 }, { x: 1520, y: 1020 }]);
       for (let t = 20_100; t <= 21_000; t += 100) controller.update(t); // commit group
-      expect(cam.zoom).not.toBe(zoomBefore);
-      void cx;
+      expect(cam.midPoint.x).toBeGreaterThan(cx);
+    });
+
+    it('reframes on a same-mode target swap even when the new hero is inside the box', () => {
+      const cam = makeCamera();
+      const controller = new AutoCameraController(cam, makeOptions(true, 0.7));
+      const heroA = { x: 1400, y: 900 };
+      controller.setActiveTargets([heroA]); // focus A, settles at center
+      settle(controller);
+      const cx = cam.midPoint.x;
+      // A different hero ref, still one active (mode stays focus) and sitting
+      // inside A's box. Membership changed, so the camera must reframe to B
+      // instead of holding on A.
+      const heroB = { x: cx + 150, y: 900 };
+      controller.setActiveTargets([heroB]);
+      controller.update(20_100);
+      expect(cam.midPoint.x).toBeGreaterThan(cx);
+    });
+
+    it('stays finite when a hero oscillates across the box boundary', () => {
+      const cam = makeCamera();
+      const controller = new AutoCameraController(cam, makeOptions(true, 0.7));
+      const hero = { x: 1400, y: 900 };
+      controller.setActiveTargets([hero]);
+      settle(controller);
+      const cx = cam.midPoint.x;
+      // Same ref swinging well outside the box on alternating sides. The camera
+      // chases each side via the lerp; it must stay finite and bounded (no NaN /
+      // runaway) — fixing the single-threshold policy against regressions.
+      for (let i = 0; i < 12; i += 1) {
+        hero.x = i % 2 === 0 ? cx + 600 : cx - 600;
+        controller.update(20_100 + i * 100);
+      }
+      expect(Number.isFinite(cam.midPoint.x)).toBe(true);
+      expect(Math.abs(cam.midPoint.x - cx)).toBeLessThan(700);
     });
   });
 });
