@@ -472,8 +472,15 @@ export class EditorScene extends Phaser.Scene {
     // the cursor, apply the new zoom, then shift scroll so that world point
     // stays under the cursor. Otherwise Phaser zooms around the camera
     // center and the map appears to drift toward the top-left corner.
-    this.input.on('wheel', (pointer: Phaser.Input.Pointer, _go: unknown, _dx: number, dy: number) => {
+    this.input.on('wheel', (pointer: Phaser.Input.Pointer, _go: unknown, dx: number, dy: number) => {
       const cam = this.cameras.main;
+      // A horizontal two-finger swipe (dx dominant) pans left/right — this was
+      // previously ignored, so trackpad users could not pan sideways. Vertical
+      // wheel/swipe keeps zooming around the cursor as before.
+      if (Math.abs(dx) > Math.abs(dy)) {
+        cam.setScroll(cam.scrollX + dx / cam.zoom, cam.scrollY);
+        return;
+      }
       const cur = cam.zoom;
       const next = Phaser.Math.Clamp(dy > 0 ? cur / 1.1 : cur * 1.1, this.minZoom(), MAX_ZOOM);
       zoomAroundPointer(cam, pointer.x, pointer.y, next);

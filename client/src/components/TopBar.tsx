@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from 'react';
 import type { AgentState } from '../types/agent';
 import { eventBridge } from '../game/EventBridge';
 import './TopBar.css';
-import { OverlayControls } from './OverlayControls';
 
 interface TopBarProps {
   agents: AgentState[];
@@ -179,7 +178,6 @@ export function TopBar({
             >
               {'\u{2753}'}
             </button>
-            <OverlayControls />
           </div>
         </div>
 
