@@ -12,9 +12,7 @@
 
 import {
   computeCameraGoal,
-  isWithinDeadzone,
   type AutoCameraConfig,
-  type AutoCameraMode,
   type CameraTarget,
 } from './autoCameraPlanning';
 import {
@@ -48,14 +46,6 @@ export interface AutoCameraControllerOptions {
   /** Snap (skip interpolation) once center/zoom are within these epsilons. */
   readonly centerEpsilon: number;
   readonly zoomEpsilon: number;
-  /** Follow-box size as a fraction of the on-screen world extent. While the
-   * mode is unchanged and every tracked hero stays inside this box, the camera
-   * holds its center instead of chasing every step — it only reframes once a
-   * hero leaves the box. Smaller = tighter box = reframes sooner. A single
-   * threshold (no separate enter/exit) keeps the policy simple: once a hero
-   * leaves and a reframe starts, the lerp pulls it back toward the box center,
-   * which limits oscillation in practice. */
-  readonly deadzoneRatio: number;
   readonly enabled: boolean;
 }
 
@@ -64,17 +54,6 @@ export class AutoCameraController {
   private readonly options: AutoCameraControllerOptions;
   private state: AutoCameraState;
   private targets: readonly CameraTarget[] = [];
-  /** The mode realised on the last camera write. Used to bypass the deadzone on
-   * the first frame of a mode change (e.g. focus→group) so a fresh framing is
-   * never suppressed by heroes that happen to sit inside the old box. Null while
-   * disabled/paused so the first resumed frame also reframes cleanly. */
-  private lastAppliedMode: AutoCameraMode | null = null;
-  /** Set when the tracked set changes membership (a hero joins/leaves, not just
-   * moves). The next update bypasses the deadzone once so the camera reframes to
-   * the new subject instead of holding on the old one — a same-mode target swap
-   * (focus hero A → focus hero B) would otherwise be suppressed if B happens to
-   * sit inside the box that was framing A. */
-  private targetsChanged = false;
 
   constructor(camera: ControllableCamera, options: AutoCameraControllerOptions) {
     this.camera = camera;
@@ -91,14 +70,8 @@ export class AutoCameraController {
   }
 
   /** Active heroes to track. Pass live HeroSprite refs (they satisfy
-   * CameraTarget via x/y getters) so moving agents are followed each frame.
-   * A change in membership (different set of refs, by identity) flags a one-shot
-   * deadzone bypass; a same-set call with moved refs does not, so live movement
-   * stays subject to the deadzone. */
+   * CameraTarget via x/y getters) so moving agents are followed each frame. */
   setActiveTargets(targets: readonly CameraTarget[]): void {
-    if (!sameMembership(this.targets, targets)) {
-      this.targetsChanged = true;
-    }
     this.targets = targets;
   }
 
@@ -108,50 +81,29 @@ export class AutoCameraController {
     this.state = { ...this.state, lastManualMs: now };
   }
 
-  /** Advance one frame. No-op (no camera writes) while disabled or paused. */
+  /** Advance one frame. No-op (no camera writes) while disabled or paused.
+   *
+   * The goal frames the village plus the active heroes (see computeCameraGoal),
+   * so it stays stable while heroes move inside the village and only shifts when
+   * they roam past its edge. That makes a plain per-frame lerp toward the goal
+   * smooth on its own — no deadzone hold/reframe split, which is what made the
+   * camera feel like it lurched (issue #52). */
   update(now: number): void {
     const step = stepAutoCameraState(this.state, this.targets.length, now, this.options.timing);
     this.state = step.state;
-    if (step.paused) {
-      // Forget the applied mode so the first resumed frame reframes cleanly
-      // (the user may have manually moved the camera during the pause).
-      this.lastAppliedMode = null;
-      return;
-    }
+    if (step.paused) return;
 
     const viewport = { width: this.camera.width, height: this.camera.height };
     const goal = computeCameraGoal(step.mode, this.targets, viewport, this.options.config);
 
-    // Decide whether to hold the center BEFORE touching zoom, so the deadzone is
-    // judged against the world extent the user currently sees (viewport / zoom).
-    // Hold only while the framing subject is steady — a mode change (focus→group)
-    // or a target swap (focus hero A→B) always reframes. Overview has no tracked
-    // target, so it never holds.
-    const reframe = step.mode !== this.lastAppliedMode || this.targetsChanged;
-    this.targetsChanged = false;
-    const holdCenter =
-      !reframe &&
-      (step.mode === 'focus' || step.mode === 'group') &&
-      isWithinDeadzone(
-        this.targets,
-        viewport,
-        this.camera.midPoint,
-        this.camera.zoom,
-        this.options.deadzoneRatio,
-      );
-    this.lastAppliedMode = step.mode;
+    const currentCenter = this.camera.midPoint;
+    const { x, y } = this.nextCenter(goal.centerX, goal.centerY, currentCenter);
 
     // Zoom first, then center — centerOn computes scroll against the new zoom.
+    // The next center is calculated from the pre-zoom midpoint so zoom-only
+    // changes do not inject artificial pan into the center lerp.
     this.camera.setZoom(this.nextZoom(goal.zoom));
-    if (holdCenter) {
-      // Keep the current center: heroes are still comfortably on screen, so the
-      // camera stays put instead of chasing their small movements.
-      const { x, y } = this.camera.midPoint;
-      this.camera.centerOn(x, y);
-    } else {
-      const { x, y } = this.nextCenter(goal.centerX, goal.centerY);
-      this.camera.centerOn(x, y);
-    }
+    this.camera.centerOn(x, y);
   }
 
   private nextZoom(goalZoom: number): number {
@@ -165,8 +117,11 @@ export class AutoCameraController {
     return next;
   }
 
-  private nextCenter(goalX: number, goalY: number): { x: number; y: number } {
-    const from = this.camera.midPoint;
+  private nextCenter(
+    goalX: number,
+    goalY: number,
+    from: { readonly x: number; readonly y: number },
+  ): { x: number; y: number } {
     if (Math.hypot(goalX - from.x, goalY - from.y) <= this.options.centerEpsilon) {
       return { x: goalX, y: goalY };
     }
@@ -180,19 +135,4 @@ export class AutoCameraController {
   destroy(): void {
     this.targets = [];
   }
-}
-
-/** True when two target lists track the same set of objects (by identity),
- * regardless of order. Moving the same refs counts as "same"; a hero joining or
- * leaving counts as "changed". */
-function sameMembership(
-  a: readonly CameraTarget[],
-  b: readonly CameraTarget[],
-): boolean {
-  if (a.length !== b.length) return false;
-  const seen = new Set(a);
-  for (const target of b) {
-    if (!seen.has(target)) return false;
-  }
-  return true;
 }

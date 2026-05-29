@@ -34,18 +34,10 @@ export interface AutoCameraConfig {
   /** Overview center (world center). */
   readonly villageCenterX: number;
   readonly villageCenterY: number;
-  /** Margin applied to the overview fit so the village doesn't touch the edges. */
+  /** Margin applied to the fit so the framed area doesn't touch the edges. */
   readonly overviewMargin: number;
-  /** Margin applied to the group fit (smaller = more padding around the group). */
-  readonly groupMargin: number;
-  /** Zoom used when a single agent is focused. */
-  readonly focusZoom: number;
   /** Upper zoom bound (matches the manual wheel/pinch cap). */
   readonly maxZoom: number;
-  /** Minimum span of a group's bounding box, so a tight cluster of agents
-   * doesn't zoom all the way in. */
-  readonly minGroupWidth: number;
-  readonly minGroupHeight: number;
 }
 
 export interface CameraGoal {
@@ -54,6 +46,8 @@ export interface CameraGoal {
   readonly centerY: number;
   readonly zoom: number;
 }
+
+const MIN_FRAME_SPAN = 1;
 
 /** Clamp a center coordinate to a range. When the world is smaller than the
  * viewport (lo > hi), fall back to the midpoint (world center). */
@@ -110,73 +104,55 @@ export function computeCameraGoal(
   viewport: Viewport,
   config: AutoCameraConfig,
 ): CameraGoal {
-  const minZoom = minZoomFor(viewport, config);
-  const fitZoomToBounds = (z: number): number => clampZoom(z, minZoom, config.maxZoom);
-
-  const focusTarget = targets[0];
-  if (mode === 'focus' && focusTarget !== undefined) {
-    const zoom = fitZoomToBounds(config.focusZoom);
-    const { centerX, centerY } = clampCenter(focusTarget.x, focusTarget.y, zoom, viewport, config);
-    return { mode: 'focus', centerX, centerY, zoom };
+  // focus/group both frame the village plus their active targets — the village
+  // is always in view, and characters widen the box when they roam past it. The
+  // geometry is identical; only the mode label differs (the timing state machine
+  // and camera:fit still distinguish them). focus/group with too few targets, or
+  // overview, fall back to framing the village alone.
+  const framed = frameVillageWithTargets(targets, viewport, config);
+  if (mode === 'focus' && targets.length >= 1) {
+    return { mode: 'focus', ...framed };
   }
-
   if (mode === 'group' && targets.length >= 2) {
-    let minX = Infinity;
-    let minY = Infinity;
-    let maxX = -Infinity;
-    let maxY = -Infinity;
-    for (const target of targets) {
-      if (target.x < minX) minX = target.x;
-      if (target.y < minY) minY = target.y;
-      if (target.x > maxX) maxX = target.x;
-      if (target.y > maxY) maxY = target.y;
-    }
-    const spanX = Math.max(maxX - minX, config.minGroupWidth);
-    const spanY = Math.max(maxY - minY, config.minGroupHeight);
-    const zoom = fitZoomToBounds(Math.min(viewport.width / spanX, viewport.height / spanY) * config.groupMargin);
-    const { centerX, centerY } = clampCenter((minX + maxX) / 2, (minY + maxY) / 2, zoom, viewport, config);
-    return { mode: 'group', centerX, centerY, zoom };
+    return { mode: 'group', ...framed };
   }
-
-  // Overview (also the fallback when a focus/group mode lacks enough targets).
-  const fitZoom = Math.min(
-    viewport.width / config.villageWidth,
-    viewport.height / config.villageHeight,
-  ) * config.overviewMargin;
-  const zoom = fitZoomToBounds(fitZoom);
-  const { centerX, centerY } = clampCenter(
-    config.villageCenterX,
-    config.villageCenterY,
-    zoom,
-    viewport,
-    config,
-  );
-  return { mode: 'overview', centerX, centerY, zoom };
+  return { mode: 'overview', ...frameVillageWithTargets([], viewport, config) };
 }
 
 /**
- * True when every target sits inside a deadzone box centred on `center`. The
- * box is `ratio` of the on-screen world extent (viewport / zoom), so it shrinks
- * as the camera zooms in. Used by the auto camera to hold the view steady while
- * tracked heroes only jitter — it reframes only once a hero leaves the box,
- * rather than chasing every small step. Pure — unit-testable.
- *
- * Returns false for an empty target set: with nothing to track there is no
- * reason to hold, so the caller falls through to its normal framing.
+ * Frame the village footprint together with every active target. The village
+ * rectangle is always part of the bounding box, so the map stays in view and
+ * the framing is stable while characters move inside it; targets only widen the
+ * box when they roam past the village edge. With no targets this frames the
+ * village alone (the overview). Pure — unit-testable.
  */
-export function isWithinDeadzone(
+function frameVillageWithTargets(
   targets: readonly CameraTarget[],
   viewport: Viewport,
-  center: { readonly x: number; readonly y: number },
-  zoom: number,
-  ratio: number,
-): boolean {
-  if (targets.length === 0) return false;
-  const halfWidth = ((viewport.width / zoom) / 2) * ratio;
-  const halfHeight = ((viewport.height / zoom) / 2) * ratio;
+  config: AutoCameraConfig,
+): { centerX: number; centerY: number; zoom: number } {
+  const minZoom = minZoomFor(viewport, config);
+  const halfWidth = config.villageWidth / 2;
+  const halfHeight = config.villageHeight / 2;
+
+  let minX = config.villageCenterX - halfWidth;
+  let maxX = config.villageCenterX + halfWidth;
+  let minY = config.villageCenterY - halfHeight;
+  let maxY = config.villageCenterY + halfHeight;
   for (const target of targets) {
-    if (Math.abs(target.x - center.x) > halfWidth) return false;
-    if (Math.abs(target.y - center.y) > halfHeight) return false;
+    if (target.x < minX) minX = target.x;
+    if (target.x > maxX) maxX = target.x;
+    if (target.y < minY) minY = target.y;
+    if (target.y > maxY) maxY = target.y;
   }
-  return true;
+
+  const spanX = Math.max(maxX - minX, MIN_FRAME_SPAN);
+  const spanY = Math.max(maxY - minY, MIN_FRAME_SPAN);
+  const zoom = clampZoom(
+    Math.min(viewport.width / spanX, viewport.height / spanY) * config.overviewMargin,
+    minZoom,
+    config.maxZoom,
+  );
+  const { centerX, centerY } = clampCenter((minX + maxX) / 2, (minY + maxY) / 2, zoom, viewport, config);
+  return { centerX, centerY, zoom };
 }
