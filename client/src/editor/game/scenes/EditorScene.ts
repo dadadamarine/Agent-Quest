@@ -102,6 +102,9 @@ export class EditorScene extends Phaser.Scene {
   private panActive = false;
   private panStart = { x: 0, y: 0 };
   private cameraStart = { x: 0, y: 0 };
+  // Select-tool left-drag panning (mirrors the village: click selects, drag pans).
+  private selectDragging = false;
+  private selectPressWorld: { x: number; y: number } | null = null;
   /** Last position where a decoration was drag-placed — prevents overlap. */
   private lastDecoPlace = { x: -9999, y: -9999 };
 
@@ -583,7 +586,14 @@ export class EditorScene extends Phaser.Scene {
       case 'decoration': this.placeDecoration(world.x, world.y); break;
       case 'path': this.addPathPoint(world.x, world.y, p); break;
       case 'move-building': this.startBuildingDrag(world.x, world.y); break;
-      case 'select': this.applySelect(world.x, world.y); break;
+      case 'select': {
+        const cam = this.cameras.main;
+        this.panStart = { x: p.x, y: p.y };
+        this.cameraStart = { x: cam.scrollX, y: cam.scrollY };
+        this.selectPressWorld = { x: world.x, y: world.y };
+        this.selectDragging = false;
+        break;
+      }
       case 'npc': this.placeNpc(world.x, world.y); break;
       case 'spawn': this.placeSpawn(world.x, world.y); break;
     }
@@ -634,6 +644,19 @@ export class EditorScene extends Phaser.Scene {
       return;
     }
 
+    // Select tool: a left-drag pans the camera like the village (a plain click
+    // without crossing the 8px threshold still selects, handled on pointerup).
+    if (this.tool === 'select' && p.isDown && p.primaryDown && this.selectPressWorld !== null) {
+      const moved = Math.abs(p.x - this.panStart.x) + Math.abs(p.y - this.panStart.y);
+      if (!this.selectDragging && moved > 8) this.selectDragging = true;
+      if (this.selectDragging) {
+        const dx = (p.x - this.panStart.x) / this.cameras.main.zoom;
+        const dy = (p.y - this.panStart.y) / this.cameras.main.zoom;
+        this.cameras.main.setScroll(this.cameraStart.x - dx, this.cameraStart.y - dy);
+        return;
+      }
+    }
+
     const world = this.cameras.main.getWorldPoint(p.x, p.y);
 
     if (p.isDown && p.primaryDown) {
@@ -658,6 +681,13 @@ export class EditorScene extends Phaser.Scene {
   private onPointerUp(_p: Phaser.Input.Pointer): void {
     if (this.tool === 'move-building' && this.dragBuildingId !== null) {
       this.endBuildingDrag();
+    }
+    // Select tool: if the press did not turn into a pan drag, treat it as a
+    // click and select whatever was under the original press point.
+    if (this.tool === 'select' && this.selectPressWorld !== null) {
+      if (!this.selectDragging) this.applySelect(this.selectPressWorld.x, this.selectPressWorld.y);
+      this.selectPressWorld = null;
+      this.selectDragging = false;
     }
     // Reset drag-place tracker so the next click always places
     this.lastDecoPlace = { x: -9999, y: -9999 };
