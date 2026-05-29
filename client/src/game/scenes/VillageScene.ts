@@ -71,11 +71,7 @@ const AUTO_CAMERA_CONFIG: AutoCameraConfig = {
   villageCenterX: WORLD_WIDTH / 2,
   villageCenterY: WORLD_HEIGHT / 2,
   overviewMargin: VILLAGE_FIT_MARGIN,
-  groupMargin: 0.8,
-  focusZoom: 1.15,
   maxZoom: MAX_ZOOM,
-  minGroupWidth: 600,
-  minGroupHeight: 400,
 };
 
 /** Auto-camera timing — debounce/idle/manual-pause windows (issue #38). */
@@ -90,9 +86,6 @@ const AUTO_CAMERA_LERP = 0.08;
 /** Camera follow smoothing for the selected hero (issue #44). */
 const FOLLOW_LERP = 0.1;
 const AUTO_CAMERA_MAX_ZOOM_DELTA = 0.02;
-/** Auto-camera follow box: heroes can roam the middle 70% of the screen before
- * the camera reframes, so small steps no longer nudge the view (issue #50). */
-const AUTO_CAMERA_DEADZONE_RATIO = 0.7;
 
 export class VillageScene extends Phaser.Scene {
   private buildings: Building[] = [];
@@ -211,7 +204,6 @@ export class VillageScene extends Phaser.Scene {
       maxZoomDeltaPerFrame: AUTO_CAMERA_MAX_ZOOM_DELTA,
       centerEpsilon: 2,
       zoomEpsilon: 0.005,
-      deadzoneRatio: AUTO_CAMERA_DEADZONE_RATIO,
       enabled: readAutoCameraPreference(),
     });
 

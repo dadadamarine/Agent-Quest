@@ -15,11 +15,7 @@ const config: AutoCameraConfig = {
   villageCenterX: 1400,
   villageCenterY: 900,
   overviewMargin: 0.85,
-  groupMargin: 0.8,
-  focusZoom: 1.15,
   maxZoom: 1.5,
-  minGroupWidth: 600,
-  minGroupHeight: 400,
 };
 
 const timing: AutoCameraTiming = {
@@ -28,7 +24,7 @@ const timing: AutoCameraTiming = {
   focusDebounceMs: 800,
 };
 
-function makeOptions(enabled: boolean, deadzoneRatio = 0): AutoCameraControllerOptions {
+function makeOptions(enabled: boolean): AutoCameraControllerOptions {
   return {
     config,
     timing,
@@ -36,15 +32,8 @@ function makeOptions(enabled: boolean, deadzoneRatio = 0): AutoCameraControllerO
     maxZoomDeltaPerFrame: 0.05,
     centerEpsilon: 1,
     zoomEpsilon: 0.005,
-    deadzoneRatio,
     enabled,
   };
-}
-
-/** Run enough frames to commit a mode (past focusDebounceMs) and let the lerp
- * settle the camera, so deadzone tests start from a steady focused view. */
-function settle(controller: AutoCameraController): void {
-  for (let t = 0; t <= 20_000; t += 100) controller.update(t);
 }
 
 /** Mock camera that records writes and keeps midPoint/zoom consistent. */
@@ -94,19 +83,21 @@ describe('AutoCameraController', () => {
     expect(cam.writes).toBeGreaterThan(before);
   });
 
-  it('converges the camera toward a single active target over time', () => {
+  it('converges the camera toward a hero that has roamed outside the village', () => {
     const cam = makeCamera();
     const controller = new AutoCameraController(cam, makeOptions(true));
-    controller.setActiveTargets([{ x: 600, y: 1200 }]);
-    // Run enough frames to commit focus (debounce) and converge via lerp.
+    // Hero past the village on both axes (village rect x 850–1950, y 550–1250),
+    // so the village+hero box extends down-left of the village center and the
+    // camera converges that way.
+    controller.setActiveTargets([{ x: 500, y: 1500 }]);
     for (let t = 0; t <= 20_000; t += 100) {
       controller.update(t);
     }
-    // Focus zoom is 1.15; center should have moved well away from the start
-    // (1400,900) toward the clamped target.
-    expect(cam.zoom).toBeCloseTo(1.15, 1);
+    // bbox (500,550)-(1950,1500) → center (1225, 1025), zoomed out from the
+    // village-only fit. Camera has lerped well away from the start (1400,900).
     expect(cam.midPoint.x).toBeLessThan(1400);
     expect(cam.midPoint.y).toBeGreaterThan(900);
+    expect(cam.zoom).toBeLessThan(0.971); // wider box than village-only
   });
 
   it('toggles enabled state', () => {
@@ -132,95 +123,44 @@ describe('AutoCameraController', () => {
     expect(cam.zoom).toBeLessThanOrEqual(0.5 + 0.05 * 10 + 1e-9);
   });
 
-  describe('deadzone (issue #50)', () => {
-    it('holds the center while a focused hero only jitters inside the box', () => {
-      const cam = makeCamera();
-      const controller = new AutoCameraController(cam, makeOptions(true, 0.7));
-      // Same live ref throughout: moving it is "jitter", not a target swap.
-      const hero = { x: 1400, y: 900 }; // starts at the camera center
+  describe('village framing keeps the camera steady (issue #52)', () => {
+    it('barely moves the center while a focused hero wanders inside the village', () => {
+      const cam = makeCamera(); // starts at the village center (1400, 900)
+      const controller = new AutoCameraController(cam, makeOptions(true));
+      // Same live ref; the goal frames the village + this hero, so while the hero
+      // stays inside the village the goal center is the village center and the
+      // camera holds steady — no chasing, no lurch (the issue #52 complaint).
+      const hero = { x: 1400, y: 900 };
       controller.setActiveTargets([hero]);
-      settle(controller);
+      for (let t = 0; t <= 20_000; t += 100) controller.update(t);
       const cx = cam.midPoint.x;
       const cy = cam.midPoint.y;
-      // Nudge the hero a little — still well inside the 70% follow box.
-      hero.x = cx + 30;
-      hero.y = cy + 20;
-      controller.update(20_100);
-      expect(cam.midPoint.x).toBe(cx);
-      expect(cam.midPoint.y).toBe(cy);
+      hero.x = 1100; // a different spot, still well inside the village rect
+      hero.y = 750;
+      for (let t = 20_100; t <= 21_000; t += 100) controller.update(t);
+      expect(Math.abs(cam.midPoint.x - cx)).toBeLessThan(1);
+      expect(Math.abs(cam.midPoint.y - cy)).toBeLessThan(1);
     });
 
-    it('reframes once a focused hero leaves the box', () => {
+    it('pans smoothly (no jump) when a hero roams past the village edge', () => {
       const cam = makeCamera();
-      const controller = new AutoCameraController(cam, makeOptions(true, 0.7));
+      const controller = new AutoCameraController(cam, makeOptions(true));
       const hero = { x: 1400, y: 900 };
       controller.setActiveTargets([hero]);
-      settle(controller);
-      const cx = cam.midPoint.x;
-      // Half-box at zoom 1.15 is ~0.7 × (1280/1.15/2) ≈ 389 px; 600 is outside.
-      hero.x = cx + 600;
-      controller.update(20_100);
-      expect(cam.midPoint.x).toBeGreaterThan(cx);
-    });
-
-    it('does not apply the deadzone in overview (no tracked target)', () => {
-      const cam = makeCamera();
-      cam._cx = 100; // off the overview center so a write is observable
-      cam._cy = 100;
-      const controller = new AutoCameraController(cam, makeOptions(true, 0.7));
-      controller.setActiveTargets([]); // zero active → overview
-      for (let t = 0; t <= 9000; t += 100) controller.update(t); // past idleOverviewMs
-      // Overview reframes toward the village center regardless of the deadzone.
-      expect(cam.midPoint.x).toBeGreaterThan(100);
-      expect(cam.midPoint.y).toBeGreaterThan(100);
-    });
-
-    it('bypasses the deadzone on a mode change, moving the center to the new framing', () => {
-      const cam = makeCamera();
-      const controller = new AutoCameraController(cam, makeOptions(true, 0.7));
-      controller.setActiveTargets([{ x: 1400, y: 900 }]); // focus, settles at center
-      settle(controller);
-      const cx = cam.midPoint.x;
-      // Two heroes both inside the old focus box but offset to one side, so the
-      // group goal center differs from the held center. A held (un-bypassed)
-      // deadzone would keep cx; the mode change must reframe toward the group.
-      controller.setActiveTargets([{ x: 1480, y: 980 }, { x: 1520, y: 1020 }]);
-      for (let t = 20_100; t <= 21_000; t += 100) controller.update(t); // commit group
-      expect(cam.midPoint.x).toBeGreaterThan(cx);
-    });
-
-    it('reframes on a same-mode target swap even when the new hero is inside the box', () => {
-      const cam = makeCamera();
-      const controller = new AutoCameraController(cam, makeOptions(true, 0.7));
-      const heroA = { x: 1400, y: 900 };
-      controller.setActiveTargets([heroA]); // focus A, settles at center
-      settle(controller);
-      const cx = cam.midPoint.x;
-      // A different hero ref, still one active (mode stays focus) and sitting
-      // inside A's box. Membership changed, so the camera must reframe to B
-      // instead of holding on A.
-      const heroB = { x: cx + 150, y: 900 };
-      controller.setActiveTargets([heroB]);
-      controller.update(20_100);
-      expect(cam.midPoint.x).toBeGreaterThan(cx);
-    });
-
-    it('stays finite when a hero oscillates across the box boundary', () => {
-      const cam = makeCamera();
-      const controller = new AutoCameraController(cam, makeOptions(true, 0.7));
-      const hero = { x: 1400, y: 900 };
-      controller.setActiveTargets([hero]);
-      settle(controller);
-      const cx = cam.midPoint.x;
-      // Same ref swinging well outside the box on alternating sides. The camera
-      // chases each side via the lerp; it must stay finite and bounded (no NaN /
-      // runaway) — fixing the single-threshold policy against regressions.
-      for (let i = 0; i < 12; i += 1) {
-        hero.x = i % 2 === 0 ? cx + 600 : cx - 600;
-        controller.update(20_100 + i * 100);
+      for (let t = 0; t <= 20_000; t += 100) controller.update(t);
+      const startX = cam.midPoint.x;
+      // Hero walks far past the right edge. The goal shifts, and the camera
+      // follows via the per-frame lerp — each step bounded, ending right of start.
+      hero.x = 2700;
+      let prevX = startX;
+      let maxStep = 0;
+      for (let t = 20_100; t <= 24_000; t += 100) {
+        controller.update(t);
+        maxStep = Math.max(maxStep, Math.abs(cam.midPoint.x - prevX));
+        prevX = cam.midPoint.x;
       }
-      expect(Number.isFinite(cam.midPoint.x)).toBe(true);
-      expect(Math.abs(cam.midPoint.x - cx)).toBeLessThan(700);
+      expect(cam.midPoint.x).toBeGreaterThan(startX); // followed toward the hero
+      expect(maxStep).toBeLessThan(120); // no single-frame jump (lerp-bounded)
     });
   });
 });
