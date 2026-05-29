@@ -12,7 +12,9 @@
 
 import {
   computeCameraGoal,
+  isWithinDeadzone,
   type AutoCameraConfig,
+  type AutoCameraMode,
   type CameraTarget,
 } from './autoCameraPlanning';
 import {
@@ -46,6 +48,13 @@ export interface AutoCameraControllerOptions {
   /** Snap (skip interpolation) once center/zoom are within these epsilons. */
   readonly centerEpsilon: number;
   readonly zoomEpsilon: number;
+  /** Follow-box size as a fraction of the on-screen world extent. While the
+   * mode is unchanged and every tracked hero stays inside this box, the camera
+   * holds its center instead of chasing every step — it only reframes once a
+   * hero leaves the box. Smaller = tighter box = reframes sooner. A single
+   * threshold (no separate enter/exit) is enough because once a reframe starts
+   * the lerp pulls the hero back toward the box center, which self-settles. */
+  readonly deadzoneRatio: number;
   readonly enabled: boolean;
 }
 
@@ -54,6 +63,11 @@ export class AutoCameraController {
   private readonly options: AutoCameraControllerOptions;
   private state: AutoCameraState;
   private targets: readonly CameraTarget[] = [];
+  /** The mode realised on the last camera write. Used to bypass the deadzone on
+   * the first frame of a mode change (e.g. focus→group) so a fresh framing is
+   * never suppressed by heroes that happen to sit inside the old box. Null while
+   * disabled/paused so the first resumed frame also reframes cleanly. */
+  private lastAppliedMode: AutoCameraMode | null = null;
 
   constructor(camera: ControllableCamera, options: AutoCameraControllerOptions) {
     this.camera = camera;
@@ -85,15 +99,44 @@ export class AutoCameraController {
   update(now: number): void {
     const step = stepAutoCameraState(this.state, this.targets.length, now, this.options.timing);
     this.state = step.state;
-    if (step.paused) return;
+    if (step.paused) {
+      // Forget the applied mode so the first resumed frame reframes cleanly
+      // (the user may have manually moved the camera during the pause).
+      this.lastAppliedMode = null;
+      return;
+    }
 
     const viewport = { width: this.camera.width, height: this.camera.height };
     const goal = computeCameraGoal(step.mode, this.targets, viewport, this.options.config);
 
+    // Decide whether to hold the center BEFORE touching zoom, so the deadzone is
+    // judged against the world extent the user currently sees (viewport / zoom).
+    // Hold only while the mode is steady — a mode change (focus→group, etc.)
+    // always reframes. Overview has no tracked target, so it never holds.
+    const modeChanged = step.mode !== this.lastAppliedMode;
+    const holdCenter =
+      !modeChanged &&
+      (step.mode === 'focus' || step.mode === 'group') &&
+      isWithinDeadzone(
+        this.targets,
+        viewport,
+        this.camera.midPoint,
+        this.camera.zoom,
+        this.options.deadzoneRatio,
+      );
+    this.lastAppliedMode = step.mode;
+
     // Zoom first, then center — centerOn computes scroll against the new zoom.
     this.camera.setZoom(this.nextZoom(goal.zoom));
-    const { x, y } = this.nextCenter(goal.centerX, goal.centerY);
-    this.camera.centerOn(x, y);
+    if (holdCenter) {
+      // Keep the current center: heroes are still comfortably on screen, so the
+      // camera stays put instead of chasing their small movements.
+      const { x, y } = this.camera.midPoint;
+      this.camera.centerOn(x, y);
+    } else {
+      const { x, y } = this.nextCenter(goal.centerX, goal.centerY);
+      this.camera.centerOn(x, y);
+    }
   }
 
   private nextZoom(goalZoom: number): number {

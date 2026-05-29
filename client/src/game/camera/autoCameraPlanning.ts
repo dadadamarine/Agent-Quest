@@ -55,11 +55,6 @@ export interface CameraGoal {
   readonly zoom: number;
 }
 
-/** Floor for the fit-box span so a degenerate (zero-area) bounding box can
- * never divide zoom by zero. Production village dimensions are always positive,
- * so this only hardens the exported planner against pathological inputs. */
-const MIN_FIT_SPAN = 1;
-
 /** Clamp a center coordinate to a range. When the world is smaller than the
  * viewport (lo > hi), fall back to the midpoint (world center). */
 function clampCenterCoord(value: number, lo: number, hi: number): number {
@@ -160,44 +155,28 @@ export function computeCameraGoal(
 }
 
 /**
- * Frame the whole village plus every hero so a single "fit to view" action
- * always shows the map and all characters at once. The village rectangle is
- * always part of the bounding box, so the framing stays stable even when every
- * hero is clustered together (or there are none) — heroes can only widen the
- * box, never shrink it below the village footprint. Pure — unit-testable.
+ * True when every target sits inside a deadzone box centred on `center`. The
+ * box is `ratio` of the on-screen world extent (viewport / zoom), so it shrinks
+ * as the camera zooms in. Used by the auto camera to hold the view steady while
+ * tracked heroes only jitter — it reframes only once a hero leaves the box,
+ * rather than chasing every small step. Pure — unit-testable.
  *
- * Reuses the same clamp/margin helpers as the auto-camera overview so the
- * manual fit and the automatic framing never drift apart. Returns the
- * `'overview'` mode since a fit is a village-framing goal; callers only consume
- * `centerX`/`centerY`/`zoom` (the mode is informational, not an auto-camera state).
+ * Returns false for an empty target set: with nothing to track there is no
+ * reason to hold, so the caller falls through to its normal framing.
  */
-export function computeFitGoal(
-  heroTargets: readonly CameraTarget[],
+export function isWithinDeadzone(
+  targets: readonly CameraTarget[],
   viewport: Viewport,
-  config: AutoCameraConfig,
-): CameraGoal {
-  const minZoom = minZoomFor(viewport, config);
-  const halfWidth = config.villageWidth / 2;
-  const halfHeight = config.villageHeight / 2;
-
-  let minX = config.villageCenterX - halfWidth;
-  let maxX = config.villageCenterX + halfWidth;
-  let minY = config.villageCenterY - halfHeight;
-  let maxY = config.villageCenterY + halfHeight;
-  for (const target of heroTargets) {
-    if (target.x < minX) minX = target.x;
-    if (target.x > maxX) maxX = target.x;
-    if (target.y < minY) minY = target.y;
-    if (target.y > maxY) maxY = target.y;
+  center: { readonly x: number; readonly y: number },
+  zoom: number,
+  ratio: number,
+): boolean {
+  if (targets.length === 0) return false;
+  const halfWidth = ((viewport.width / zoom) / 2) * ratio;
+  const halfHeight = ((viewport.height / zoom) / 2) * ratio;
+  for (const target of targets) {
+    if (Math.abs(target.x - center.x) > halfWidth) return false;
+    if (Math.abs(target.y - center.y) > halfHeight) return false;
   }
-
-  const spanX = Math.max(maxX - minX, MIN_FIT_SPAN);
-  const spanY = Math.max(maxY - minY, MIN_FIT_SPAN);
-  const zoom = clampZoom(
-    Math.min(viewport.width / spanX, viewport.height / spanY) * config.overviewMargin,
-    minZoom,
-    config.maxZoom,
-  );
-  const { centerX, centerY } = clampCenter((minX + maxX) / 2, (minY + maxY) / 2, zoom, viewport, config);
-  return { mode: 'overview', centerX, centerY, zoom };
+  return true;
 }

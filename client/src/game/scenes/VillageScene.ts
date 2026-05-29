@@ -15,8 +15,8 @@ import { SERVER_URL as API_BASE } from '../../config';
 import { getActiveTheme, rebaseSavedScale } from '../themes/registry';
 import { computeShowSourceBadge, computePartyOrder } from '../../presentation/agentPresentation';
 import { AutoCameraController } from '../camera/AutoCameraController';
-import { computeFitGoal } from '../camera/autoCameraPlanning';
-import type { AutoCameraConfig, CameraTarget } from '../camera/autoCameraPlanning';
+import { computeCameraGoal } from '../camera/autoCameraPlanning';
+import type { AutoCameraConfig, AutoCameraMode } from '../camera/autoCameraPlanning';
 import type { AutoCameraTiming } from '../camera/autoCameraState';
 import { readAutoCameraPreference } from '../camera/autoCameraPref';
 import {
@@ -90,11 +90,19 @@ const AUTO_CAMERA_LERP = 0.08;
 /** Camera follow smoothing for the selected hero (issue #44). */
 const FOLLOW_LERP = 0.1;
 const AUTO_CAMERA_MAX_ZOOM_DELTA = 0.02;
+/** Auto-camera follow box: heroes can roam the middle 70% of the screen before
+ * the camera reframes, so small steps no longer nudge the view (issue #50). */
+const AUTO_CAMERA_DEADZONE_RATIO = 0.7;
 
 export class VillageScene extends Phaser.Scene {
   private buildings: Building[] = [];
   private landmarks: Landmark[] = [];
   private heroes = new Map<string, HeroSprite>();
+  /** Currently active heroes (status === 'active'), the same live refs fed to
+   * the auto camera. Shared so the Fit-view button frames exactly what the auto
+   * camera would (issue #50). Live HeroSprite refs (x/y getters), not snapshots,
+   * so a fit taken mid-walk uses each hero's current position. */
+  private activeHeroes: HeroSprite[] = [];
   private onAgentsUpdated: ((agents: unknown) => void) | null = null;
   private onCameraFollow: ((agentId: unknown) => void) | null = null;
   private onCameraFit: (() => void) | null = null;
@@ -203,6 +211,7 @@ export class VillageScene extends Phaser.Scene {
       maxZoomDeltaPerFrame: AUTO_CAMERA_MAX_ZOOM_DELTA,
       centerEpsilon: 2,
       zoomEpsilon: 0.005,
+      deadzoneRatio: AUTO_CAMERA_DEADZONE_RATIO,
       enabled: readAutoCameraPreference(),
     });
 
@@ -455,18 +464,19 @@ export class VillageScene extends Phaser.Scene {
     };
     eventBridge.on('camera:follow', this.onCameraFollow);
 
-    // One-shot "fit view" (TopBar button): frame the whole village plus every
-    // hero in a single smooth pan + zoom. Like camera:follow it is a manual
-    // intent, so it pauses the auto camera rather than fighting its update.
+    // One-shot "fit view" (TopBar button): frame the active agents exactly as
+    // the auto camera would the moment it's switched on — a single smooth pan +
+    // zoom, no continuous following. Like camera:follow it is a manual intent,
+    // so it pauses the auto camera rather than fighting its update.
     this.onCameraFit = () => {
       try { if (!this.sys.isActive()) return; } catch { return; }
       this.autoCam?.notifyManualInteraction(this.time.now);
       const cam = this.cameras.main;
-      const heroTargets: CameraTarget[] = [];
-      for (const hero of this.heroes.values()) {
-        heroTargets.push({ x: hero.x, y: hero.y });
-      }
-      const goal = computeFitGoal(heroTargets, { width: cam.width, height: cam.height }, AUTO_CAMERA_CONFIG);
+      // Mode mirrors the auto camera's desired mode: 1 active → focus, 2+ →
+      // group, none → overview (computeCameraGoal falls back to overview for an
+      // empty/short target set, so framing matches the auto camera exactly).
+      const mode: AutoCameraMode = this.activeHeroes.length >= 2 ? 'group' : 'focus';
+      const goal = computeCameraGoal(mode, this.activeHeroes, { width: cam.width, height: cam.height }, AUTO_CAMERA_CONFIG);
       // force=true so a fit always wins: it overrides an in-flight pan/zoom
       // (e.g. an Activity Feed camera:follow tween, or a rapid second click).
       // Without it Phaser ignores the request while another effect runs,
@@ -1010,6 +1020,7 @@ export class VillageScene extends Phaser.Scene {
       const hero = this.heroes.get(agent.id);
       if (hero !== undefined) activeHeroes.push(hero);
     }
+    this.activeHeroes = activeHeroes;
     this.autoCam?.setActiveTargets(activeHeroes);
   }
 }

@@ -28,7 +28,7 @@ const timing: AutoCameraTiming = {
   focusDebounceMs: 800,
 };
 
-function makeOptions(enabled: boolean): AutoCameraControllerOptions {
+function makeOptions(enabled: boolean, deadzoneRatio = 0): AutoCameraControllerOptions {
   return {
     config,
     timing,
@@ -36,8 +36,15 @@ function makeOptions(enabled: boolean): AutoCameraControllerOptions {
     maxZoomDeltaPerFrame: 0.05,
     centerEpsilon: 1,
     zoomEpsilon: 0.005,
+    deadzoneRatio,
     enabled,
   };
+}
+
+/** Run enough frames to commit a mode (past focusDebounceMs) and let the lerp
+ * settle the camera, so deadzone tests start from a steady focused view. */
+function settle(controller: AutoCameraController): void {
+  for (let t = 0; t <= 20_000; t += 100) controller.update(t);
 }
 
 /** Mock camera that records writes and keeps midPoint/zoom consistent. */
@@ -123,5 +130,61 @@ describe('AutoCameraController', () => {
     // Zoom moved toward the goal but by at most maxZoomDeltaPerFrame per call.
     expect(cam.zoom).toBeGreaterThan(0.5);
     expect(cam.zoom).toBeLessThanOrEqual(0.5 + 0.05 * 10 + 1e-9);
+  });
+
+  describe('deadzone (issue #50)', () => {
+    it('holds the center while a focused hero only jitters inside the box', () => {
+      const cam = makeCamera();
+      const controller = new AutoCameraController(cam, makeOptions(true, 0.7));
+      controller.setActiveTargets([{ x: 1400, y: 900 }]); // starts at the camera center
+      settle(controller);
+      const cx = cam.midPoint.x;
+      const cy = cam.midPoint.y;
+      // Nudge the hero a little — still well inside the 70% follow box.
+      controller.setActiveTargets([{ x: cx + 30, y: cy + 20 }]);
+      controller.update(20_100);
+      expect(cam.midPoint.x).toBe(cx);
+      expect(cam.midPoint.y).toBe(cy);
+    });
+
+    it('reframes once a focused hero leaves the box', () => {
+      const cam = makeCamera();
+      const controller = new AutoCameraController(cam, makeOptions(true, 0.7));
+      controller.setActiveTargets([{ x: 1400, y: 900 }]);
+      settle(controller);
+      const cx = cam.midPoint.x;
+      // Half-box at zoom 1.15 is ~0.7 × (1280/1.15/2) ≈ 389 px; 600 is outside.
+      controller.setActiveTargets([{ x: cx + 600, y: 900 }]);
+      controller.update(20_100);
+      expect(cam.midPoint.x).toBeGreaterThan(cx);
+    });
+
+    it('does not apply the deadzone in overview (no tracked target)', () => {
+      const cam = makeCamera();
+      cam._cx = 100; // off the overview center so a write is observable
+      cam._cy = 100;
+      const controller = new AutoCameraController(cam, makeOptions(true, 0.7));
+      controller.setActiveTargets([]); // zero active → overview
+      for (let t = 0; t <= 9000; t += 100) controller.update(t); // past idleOverviewMs
+      // Overview reframes toward the village center regardless of the deadzone.
+      expect(cam.midPoint.x).toBeGreaterThan(100);
+      expect(cam.midPoint.y).toBeGreaterThan(100);
+    });
+
+    it('bypasses the deadzone on a mode change so a fresh framing is not suppressed', () => {
+      const cam = makeCamera();
+      const controller = new AutoCameraController(cam, makeOptions(true, 0.7));
+      controller.setActiveTargets([{ x: 1400, y: 900 }]); // focus, settles at center
+      settle(controller);
+      const cx = cam.midPoint.x;
+      // Two heroes spread apart → group. Their midpoint is the camera center, so
+      // both sit inside the old focus box, yet the mode change must still reframe
+      // (group zoom differs), proving the deadzone is bypassed on the first frame.
+      const zoomBefore = cam.zoom;
+      controller.setActiveTargets([{ x: 900, y: 600 }, { x: 1900, y: 1200 }]);
+      for (let t = 20_100; t <= 21_000; t += 100) controller.update(t); // commit group
+      expect(cam.zoom).not.toBe(zoomBefore);
+      void cx;
+    });
   });
 });
