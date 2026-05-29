@@ -14,7 +14,7 @@
   transition: width 0.18s ease;
 }
 .partybar.mode-full  { width: 260px; }
-.partybar.mode-icons { width: 88px;  }
+.partybar.mode-icons { width: 52px;  }
 
 /* === Header === */
 .partybar-header {
@@ -273,4 +273,18 @@
   .partybar.mode-full { width: 88px; }
   .partybar.mode-full .partybar-row-body,
   .partybar.mode-full .partybar-title { display: none; }
+}
+
+/* === Collapsed icon strip: keep the minimized panel as compact as possible === */
+.partybar.mode-icons .partybar-header { padding: 4px 4px 3px; gap: 4px; }
+.partybar.mode-icons .partybar-title-compact { font-size: 12px; padding: 0 4px; }
+.partybar.mode-icons .partybar-fold-btn { width: 18px; height: 18px; font-size: 10px; }
+.partybar.mode-icons .partybar-agent { padding: 4px 0; }
+.partybar.mode-icons .partybar-index {
+  min-width: 13px; height: 13px; padding: 0 2px;
+  font: 600 8px/13px 'Fira Code', monospace;
+  top: -3px; left: -3px;
+}
+.partybar.mode-icons .partybar-status-overlay {
+  width: 9px; height: 9px; border-width: 1px; bottom: 0; right: 0;
 }
