@@ -12,7 +12,7 @@ export interface FeedPrefs {
 }
 
 export const DEFAULT_PREFS: FeedPrefs = {
-  foldState: 'full',
+  foldState: 'closed',
   viewMode: 'all',
   activeHighlights: [],
   agentFilter: null,
