@@ -1,10 +1,11 @@
 import { describe, expect, test } from 'bun:test';
 import { computeHeroDepths, SELECTED_HERO_DEPTH_BASE } from './heroDepth';
 import { WORLD_HEIGHT } from '../data/building-layout';
+import { RAIN_DARKEN_DEPTH } from '../renderDepth';
 
-// Night/rain atmospheric overlays live at depth 4997–5001 in VillageScene. The
-// selected hero must read as "front of the crowd", never "above the weather".
-const ATMOSPHERIC_OVERLAY_DEPTH = 4997;
+// The selected hero must read as "front of the crowd", never "above the
+// weather": its depth stays below the lowest atmospheric overlay.
+const ATMOSPHERIC_OVERLAY_DEPTH = RAIN_DARKEN_DEPTH;
 
 describe('computeHeroDepths', () => {
   test('unselected depths track footY with the documented offsets', () => {

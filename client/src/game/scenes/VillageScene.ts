@@ -26,6 +26,12 @@ import {
   type CameraFollowState,
   type CameraFollowEffect,
 } from './cameraFollowPolicy';
+import {
+  NIGHT_OVERLAY_DEPTH,
+  RAIN_EMITTER_DEPTH,
+  RAIN_SPLASH_DEPTH,
+  RAIN_DARKEN_DEPTH,
+} from '../renderDepth';
 
 /** Set `cam.zoom` to `newZoom` while keeping the world point currently
  * under screen coordinates (sx, sy) pinned to the same screen spot.
@@ -198,6 +204,15 @@ export class VillageScene extends Phaser.Scene {
       enabled: readAutoCameraPreference(),
     });
 
+    // Reset follow state on (re)create so a restarted scene never inherits a
+    // stale followedHeroId — otherwise reduceAutoCamToggle would treat the
+    // scene as following and keep the freshly-built auto-cam disabled. Mirrors
+    // the auto-cam being rebuilt just above.
+    this.followState = {
+      followedHeroId: null,
+      userAutoCamEnabled: readAutoCameraPreference(),
+    };
+
     this.onAutoCameraUpdate = (time: number) => {
       this.autoCam?.update(time);
     };
@@ -296,7 +311,7 @@ export class VillageScene extends Phaser.Scene {
     this.nightOverlay.fillRect(-WORLD_WIDTH, -WORLD_HEIGHT, WORLD_WIDTH * 3, WORLD_HEIGHT * 3);
     // Depth must exceed the maximum Y-sorted sprite depth (~WORLD_HEIGHT) so
      // buildings and decorations placed near the bottom of the map stay covered.
-    this.nightOverlay.setDepth(5000);
+    this.nightOverlay.setDepth(NIGHT_OVERLAY_DEPTH);
     this.nightOverlay.setVisible(false);
 
     this.onNightToggle = (on: unknown) => {
@@ -354,7 +369,7 @@ export class VillageScene extends Phaser.Scene {
       frequency: 10,
       emitting: false,
     });
-    this.rainEmitter.setDepth(5001);
+    this.rainEmitter.setDepth(RAIN_EMITTER_DEPTH);
 
     // Ground splashes — short-lived puffs emitted across the viewport floor.
     this.rainSplashZone = new Phaser.Geom.Rectangle(0, 0, WORLD_WIDTH, 1);
@@ -368,13 +383,13 @@ export class VillageScene extends Phaser.Scene {
       frequency: 45,
       emitting: false,
     });
-    this.rainSplashEmitter.setDepth(5000);
+    this.rainSplashEmitter.setDepth(RAIN_SPLASH_DEPTH);
 
     // Storm darkening overlay — activates with rain, independent from night mode.
     this.rainDarkenOverlay = this.add.graphics();
     this.rainDarkenOverlay.fillStyle(0x1a2a3a, 0.30);
     this.rainDarkenOverlay.fillRect(-WORLD_WIDTH, -WORLD_HEIGHT, WORLD_WIDTH * 3, WORLD_HEIGHT * 3);
-    this.rainDarkenOverlay.setDepth(4997);
+    this.rainDarkenOverlay.setDepth(RAIN_DARKEN_DEPTH);
     this.rainDarkenOverlay.setVisible(false);
 
     // Keep emit zones aligned with the current camera worldView, but clamped

@@ -1,4 +1,6 @@
-import { WORLD_HEIGHT } from '../data/building-layout';
+import { SELECTED_HERO_DEPTH_BASE } from '../renderDepth';
+
+export { SELECTED_HERO_DEPTH_BASE };
 
 /**
  * Depth offsets for a hero's sprite and its labels, applied on top of a layer
@@ -15,15 +17,6 @@ const DEPTH_OFFSETS = {
   activityMsgText: 1.1,
   indexText: 1.2,
 } as const;
-
-/**
- * Base depth for the currently selected (followed) hero. It lifts the hero
- * above every other world object — heroes and buildings sort by footY, whose
- * max is roughly WORLD_HEIGHT plus a sprite half-height — while staying *below*
- * the atmospheric overlays (night 5000, rain 4997–5001). The selected hero
- * should read as "front of the crowd", not "above the weather".
- */
-export const SELECTED_HERO_DEPTH_BASE = WORLD_HEIGHT + 1000;
 
 export interface HeroDepths {
   sprite: number;
