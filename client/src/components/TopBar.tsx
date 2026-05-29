@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { AgentState } from '../types/agent';
 import { eventBridge } from '../game/EventBridge';
 import './TopBar.css';
+import { OverlayControls } from './OverlayControls';
 
 interface TopBarProps {
   agents: AgentState[];
@@ -122,6 +123,7 @@ export function TopBar({
           </div>
 
           <div className="topbar-effects">
+            <OverlayControls />
             <button
               type="button"
               className={`topbar-effect-btn ${nightOn ? 'active' : ''}`}

@@ -13,6 +13,7 @@ interface PartyBarProps {
 }
 
 const AVATAR_SIZE = 66;
+const ICON_AVATAR_SIZE = 34;
 const FLASH_DURATION_MS = 400;
 
 interface PartyRowProps {
@@ -53,7 +54,10 @@ function PartyRow({ agent, index, depth, mode, isSelected, onClick, showSourceBa
     : undefined;
 
   // Sub-agents render smaller than top-level sessions, here and in the village.
-  const avatarSize = depth > 0 ? Math.round(AVATAR_SIZE * 0.7) : AVATAR_SIZE;
+  // The collapsed icon strip uses a much smaller avatar so the minimized panel
+  // stays as narrow as possible.
+  const baseAvatar = mode === 'icons' ? ICON_AVATAR_SIZE : AVATAR_SIZE;
+  const avatarSize = depth > 0 ? Math.round(baseAvatar * 0.7) : baseAvatar;
 
   return (
     <button
