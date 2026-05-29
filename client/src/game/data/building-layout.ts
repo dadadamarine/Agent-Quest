@@ -153,49 +153,52 @@ export interface VillageBounds {
   readonly height: number;
 }
 
-/** Padding (world px) added on every side of the building/landmark footprint.
+/** Asymmetric padding (world px) around the building footprint.
  *
- * Buildings and landmarks render with `setOrigin(0.5, 1)` (bottom-center), so a
- * def's (x, y) is the sprite's FOOT and the artwork extends upward from there.
- * The padding absorbs that sprite height — most of all above the top row — so
- * no building is clipped at the village fit. It's sized for the bundled
- * Tiny Swords theme (def.scale ~0.38–0.6, though the active theme's
- * getBuildingScale() override governs real on-screen size); 140 clears the
- * tallest building in that theme with margin. */
-const VILLAGE_PADDING = 140;
+ * Buildings render with `setOrigin(0.5, 1)` (bottom-center): a def's (x, y) is
+ * the sprite's FOOT and the artwork extends UPWARD. So the top needs the most
+ * room (a whole sprite height) to avoid clipping the top row, while the sides
+ * and bottom only need a thin margin so the buildings don't touch the edge —
+ * keeping the empty grass around them to a minimum (issue #65). Sized for the
+ * bundled Tiny Swords theme; the active theme's getBuildingScale() governs the
+ * real on-screen size, so TOP keeps a generous margin. */
+const VILLAGE_PADDING_TOP = 130;
+const VILLAGE_PADDING_SIDE = 60;
 
-/** The village footprint = bounding box of the activity buildings + the council
- * landmark, padded so sprites aren't clipped. This is the "most zoomed-in view
- * that still shows every building" the camera frames as the village (issue #63).
+/** The village footprint = bounding box of the **named activity buildings**
+ * (BUILDING_DEFS), padded asymmetrically so sprites aren't clipped while empty
+ * grass stays minimal. This is the "most zoomed-in view that still shows every
+ * building" the camera frames as the village (issue #63/#65).
  *
- * Excludes NPC_VILLAGE (a separate district far to the south-east) and
- * VILLAGE_GATE (south of the buildings — including it would stretch the village
- * downward and undo the tightening). Active heroes that wander outside are still
- * covered by the camera's village+targets framing (issue #52). */
+ * Only the named buildings define the village. Excludes the council landmark
+ * (a C-LEVEL plaza, not a labelled building), NPC_VILLAGE (a far district), and
+ * VILLAGE_GATE (south of the buildings — would stretch the box downward).
+ * Active heroes that wander outside are still covered by the camera's
+ * village+targets framing (issue #52). */
 export function computeVillageBounds(): VillageBounds {
-  const points: ReadonlyArray<{ x: number; y: number }> = [
-    ...BUILDING_DEFS.map((building) => ({ x: building.x, y: building.y })),
-    ...LANDMARK_DEFS.map((landmark) => ({ x: landmark.x, y: landmark.y })),
-  ];
-
   let minX = Infinity;
   let maxX = -Infinity;
   let minY = Infinity;
   let maxY = -Infinity;
-  for (const point of points) {
-    if (point.x < minX) minX = point.x;
-    if (point.x > maxX) maxX = point.x;
-    if (point.y < minY) minY = point.y;
-    if (point.y > maxY) maxY = point.y;
+  for (const building of BUILDING_DEFS) {
+    if (building.x < minX) minX = building.x;
+    if (building.x > maxX) maxX = building.x;
+    if (building.y < minY) minY = building.y;
+    if (building.y > maxY) maxY = building.y;
   }
 
+  // Asymmetric: extra room above (sprites grow up from the foot), thin elsewhere.
+  const left = minX - VILLAGE_PADDING_SIDE;
+  const right = maxX + VILLAGE_PADDING_SIDE;
+  const top = minY - VILLAGE_PADDING_TOP;
+  const bottom = maxY + VILLAGE_PADDING_SIDE;
   return {
-    centerX: (minX + maxX) / 2,
-    centerY: (minY + maxY) / 2,
-    width: maxX - minX + 2 * VILLAGE_PADDING,
-    height: maxY - minY + 2 * VILLAGE_PADDING,
+    centerX: (left + right) / 2,
+    centerY: (top + bottom) / 2,
+    width: right - left,
+    height: bottom - top,
   };
 }
 
-/** Computed once at module load — building/landmark layout is static. */
+/** Computed once at module load — building layout is static. */
 export const VILLAGE_BOUNDS: VillageBounds = computeVillageBounds();
