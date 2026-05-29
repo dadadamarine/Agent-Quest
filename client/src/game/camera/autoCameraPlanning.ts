@@ -55,6 +55,11 @@ export interface CameraGoal {
   readonly zoom: number;
 }
 
+/** Floor for the fit-box span so a degenerate (zero-area) bounding box can
+ * never divide zoom by zero. Production village dimensions are always positive,
+ * so this only hardens the exported planner against pathological inputs. */
+const MIN_FIT_SPAN = 1;
+
 /** Clamp a center coordinate to a range. When the world is smaller than the
  * viewport (lo > hi), fall back to the midpoint (world center). */
 function clampCenterCoord(value: number, lo: number, hi: number): number {
@@ -186,8 +191,8 @@ export function computeFitGoal(
     if (target.y > maxY) maxY = target.y;
   }
 
-  const spanX = maxX - minX;
-  const spanY = maxY - minY;
+  const spanX = Math.max(maxX - minX, MIN_FIT_SPAN);
+  const spanY = Math.max(maxY - minY, MIN_FIT_SPAN);
   const zoom = clampZoom(
     Math.min(viewport.width / spanX, viewport.height / spanY) * config.overviewMargin,
     minZoom,

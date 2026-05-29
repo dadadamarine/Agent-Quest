@@ -173,4 +173,17 @@ describe('computeFitGoal', () => {
     const goal = computeFitGoal([{ x: 1000, y: 700 }], viewport, config);
     expect(goal.mode).toBe('overview');
   });
+
+  it('keeps finite values when the fit box collapses to a point', () => {
+    const collapsedConfig: AutoCameraConfig = {
+      ...config,
+      villageWidth: 0,
+      villageHeight: 0,
+    };
+    const goal = computeFitGoal([{ x: 1400, y: 900 }], viewport, collapsedConfig);
+    expect(Number.isFinite(goal.zoom)).toBe(true);
+    expect(Number.isFinite(goal.centerX)).toBe(true);
+    expect(Number.isFinite(goal.centerY)).toBe(true);
+    expect(goal.zoom).toBe(collapsedConfig.maxZoom);
+  });
 });
