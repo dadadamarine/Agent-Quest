@@ -2,9 +2,13 @@ import { describe, test, expect } from 'bun:test';
 import {
   BUILDING_DEFS,
   LANDMARK_DEFS,
+  NPC_VILLAGE,
   PLAZA,
+  VILLAGE_BOUNDS,
+  VILLAGE_GATE,
   WORLD_WIDTH,
   WORLD_HEIGHT,
+  computeVillageBounds,
   getBuildingForActivity,
 } from './building-layout';
 import type { AgentActivity } from '../../types/agent';
@@ -120,5 +124,59 @@ describe('getBuildingForActivity — landmarks excluded from activity routing', 
       const building = getBuildingForActivity(activity);
       expect(landmarkIds.has(building.id)).toBe(false);
     }
+  });
+});
+
+describe('computeVillageBounds — tight village footprint (issue #63)', () => {
+  const within = (
+    point: { x: number; y: number },
+    bounds: { centerX: number; centerY: number; width: number; height: number },
+  ) =>
+    Math.abs(point.x - bounds.centerX) <= bounds.width / 2 &&
+    Math.abs(point.y - bounds.centerY) <= bounds.height / 2;
+
+  test('matches the expected regression bounds for the current layout', () => {
+    // Buildings + council bbox: x 1150–1720, y 450–900 → center (1435, 675),
+    // span 570×450; + 140 padding per side → 850×730.
+    expect(VILLAGE_BOUNDS).toEqual({
+      centerX: 1435,
+      centerY: 675,
+      width: 850,
+      height: 730,
+    });
+  });
+
+  test('contains every activity building', () => {
+    for (const building of BUILDING_DEFS) {
+      expect(within(building, VILLAGE_BOUNDS)).toBe(true);
+    }
+  });
+
+  test('contains the council landmark', () => {
+    const council = findCouncil();
+    expect(within({ x: council.x, y: council.y }, VILLAGE_BOUNDS)).toBe(true);
+  });
+
+  test('contains the top-row buildings the old fixed box dropped (watchtower, chapel)', () => {
+    const watchtower = BUILDING_DEFS.find((b) => b.id === 'watchtower')!;
+    const chapel = BUILDING_DEFS.find((b) => b.id === 'chapel')!;
+    expect(within(watchtower, VILLAGE_BOUNDS)).toBe(true);
+    expect(within(chapel, VILLAGE_BOUNDS)).toBe(true);
+  });
+
+  test('excludes the far NPC village and the south gate (kept tight)', () => {
+    expect(within(NPC_VILLAGE, VILLAGE_BOUNDS)).toBe(false);
+    expect(within(VILLAGE_GATE, VILLAGE_BOUNDS)).toBe(false);
+  });
+
+  test('is much narrower than the world and stays inside it', () => {
+    expect(VILLAGE_BOUNDS.width).toBeLessThan(WORLD_WIDTH);
+    expect(VILLAGE_BOUNDS.height).toBeLessThan(WORLD_HEIGHT);
+    expect(VILLAGE_BOUNDS.centerX - VILLAGE_BOUNDS.width / 2).toBeGreaterThan(0);
+    expect(VILLAGE_BOUNDS.centerY - VILLAGE_BOUNDS.height / 2).toBeGreaterThan(0);
+  });
+
+  test('computeVillageBounds is pure (same result each call)', () => {
+    expect(computeVillageBounds()).toEqual(VILLAGE_BOUNDS);
   });
 });

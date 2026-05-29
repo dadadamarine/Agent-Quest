@@ -3,7 +3,7 @@ import { eventBridge } from '../EventBridge';
 import { Building } from '../entities/Building';
 import { Landmark } from '../entities/Landmark';
 import { HeroSprite } from '../entities/HeroSprite';
-import { BUILDING_DEFS, LANDMARK_DEFS, VILLAGE_GATE, WORLD_WIDTH, WORLD_HEIGHT, getBuildingForActivity } from '../data/building-layout';
+import { BUILDING_DEFS, LANDMARK_DEFS, VILLAGE_GATE, VILLAGE_BOUNDS, WORLD_WIDTH, WORLD_HEIGHT, getBuildingForActivity } from '../data/building-layout';
 import { TerrainRenderer } from '../terrain/TerrainRenderer';
 import { renderMapConfig, drawPath, PATH_LAYER_DEPTH } from '../terrain/MapConfigRenderer';
 import { ensureAssetsLoaded } from '../data/asset-loader';
@@ -56,20 +56,20 @@ const GRID_SPACING_Y = 35;
 /** Maximum manual zoom (matches the wheel/pinch cap). */
 const MAX_ZOOM = 1.5;
 
-/** Village framing — the area both fitCamera() and the auto overview frame.
- * Shared so the manual fit and the auto overview can never drift apart. */
-const VILLAGE_FIT_WIDTH = 1100;
-const VILLAGE_FIT_HEIGHT = 700;
+/** Margin applied to the village fit so buildings don't touch the screen edges.
+ * Shared by fitCamera() and the auto overview so manual fit and auto framing
+ * never drift apart. The village footprint itself comes from VILLAGE_BOUNDS
+ * (building bounding box), so the framing tracks the actual building layout. */
 const VILLAGE_FIT_MARGIN = 0.85;
 
 /** Auto-camera framing config — how it frames the village and active agents. */
 const AUTO_CAMERA_CONFIG: AutoCameraConfig = {
   worldWidth: WORLD_WIDTH,
   worldHeight: WORLD_HEIGHT,
-  villageWidth: VILLAGE_FIT_WIDTH,
-  villageHeight: VILLAGE_FIT_HEIGHT,
-  villageCenterX: WORLD_WIDTH / 2,
-  villageCenterY: WORLD_HEIGHT / 2,
+  villageWidth: VILLAGE_BOUNDS.width,
+  villageHeight: VILLAGE_BOUNDS.height,
+  villageCenterX: VILLAGE_BOUNDS.centerX,
+  villageCenterY: VILLAGE_BOUNDS.centerY,
   overviewMargin: VILLAGE_FIT_MARGIN,
   maxZoom: MAX_ZOOM,
 };
@@ -186,13 +186,11 @@ export class VillageScene extends Phaser.Scene {
     // the rest of create() (input, overlays, listeners) doesn't depend on it.
     void this.bootstrapWorld();
 
-    // Set world bounds and fit the village into the viewport, then center the
-    // map inside it. Anchoring on the world center (rather than a hardcoded
-    // point near the gate) keeps the map visually centred regardless of the
-    // fitted zoom level.
+    // Set world bounds, then fit + center on the village footprint. fitCamera()
+    // centers on VILLAGE_BOUNDS (the building bbox), so no centerToBounds() —
+    // that would re-center on the world center and drop the top buildings.
     this.cameras.main.setBounds(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
     this.fitCamera();
-    this.cameras.main.centerToBounds();
 
     // Auto camera — owns camera writes while enabled (issue #38). Starts from
     // the persisted preference (default ON). When enabled it smoothly takes
@@ -229,7 +227,6 @@ export class VillageScene extends Phaser.Scene {
       this.cameras.main.setViewport(0, 0, gameSize.width, gameSize.height);
       if (this.autoCam?.enabled !== true) {
         this.fitCamera();
-        this.cameras.main.centerToBounds();
       }
     };
     this.scale.on('resize', this.onResize);
@@ -686,9 +683,13 @@ export class VillageScene extends Phaser.Scene {
    * stay in lockstep. */
   private fitCamera(): void {
     const cam = this.cameras.main;
-    const zoomX = cam.width / VILLAGE_FIT_WIDTH;
-    const zoomY = cam.height / VILLAGE_FIT_HEIGHT;
+    const zoomX = cam.width / VILLAGE_BOUNDS.width;
+    const zoomY = cam.height / VILLAGE_BOUNDS.height;
     cam.setZoom(Phaser.Math.Clamp(Math.min(zoomX, zoomY) * VILLAGE_FIT_MARGIN, this.minZoom(), MAX_ZOOM));
+    // Center on the village footprint (not the world center) — the building
+    // bbox center sits above the world center, so centering on the world would
+    // leave the top buildings out of frame (issue #63).
+    cam.centerOn(VILLAGE_BOUNDS.centerX, VILLAGE_BOUNDS.centerY);
   }
 
   /**

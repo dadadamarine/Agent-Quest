@@ -144,3 +144,58 @@ export const LANDMARK_DEFS: LandmarkDef[] = [
     },
   },
 ];
+
+/** World-space bounds of the village. */
+export interface VillageBounds {
+  readonly centerX: number;
+  readonly centerY: number;
+  readonly width: number;
+  readonly height: number;
+}
+
+/** Padding (world px) added on every side of the building/landmark footprint.
+ *
+ * Buildings and landmarks render with `setOrigin(0.5, 1)` (bottom-center), so a
+ * def's (x, y) is the sprite's FOOT and the artwork extends upward from there.
+ * The padding absorbs that sprite height — most of all above the top row — so
+ * no building is clipped at the village fit. It's sized for the bundled
+ * Tiny Swords theme (def.scale ~0.38–0.6, though the active theme's
+ * getBuildingScale() override governs real on-screen size); 140 clears the
+ * tallest building in that theme with margin. */
+const VILLAGE_PADDING = 140;
+
+/** The village footprint = bounding box of the activity buildings + the council
+ * landmark, padded so sprites aren't clipped. This is the "most zoomed-in view
+ * that still shows every building" the camera frames as the village (issue #63).
+ *
+ * Excludes NPC_VILLAGE (a separate district far to the south-east) and
+ * VILLAGE_GATE (south of the buildings — including it would stretch the village
+ * downward and undo the tightening). Active heroes that wander outside are still
+ * covered by the camera's village+targets framing (issue #52). */
+export function computeVillageBounds(): VillageBounds {
+  const points: ReadonlyArray<{ x: number; y: number }> = [
+    ...BUILDING_DEFS.map((building) => ({ x: building.x, y: building.y })),
+    ...LANDMARK_DEFS.map((landmark) => ({ x: landmark.x, y: landmark.y })),
+  ];
+
+  let minX = Infinity;
+  let maxX = -Infinity;
+  let minY = Infinity;
+  let maxY = -Infinity;
+  for (const point of points) {
+    if (point.x < minX) minX = point.x;
+    if (point.x > maxX) maxX = point.x;
+    if (point.y < minY) minY = point.y;
+    if (point.y > maxY) maxY = point.y;
+  }
+
+  return {
+    centerX: (minX + maxX) / 2,
+    centerY: (minY + maxY) / 2,
+    width: maxX - minX + 2 * VILLAGE_PADDING,
+    height: maxY - minY + 2 * VILLAGE_PADDING,
+  };
+}
+
+/** Computed once at module load — building/landmark layout is static. */
+export const VILLAGE_BOUNDS: VillageBounds = computeVillageBounds();
