@@ -2,14 +2,6 @@ import { useEffect, useRef, useState } from 'react';
 import { useOverlayBridge } from '../hooks/useOverlayBridge';
 import './OverlayControls.css';
 
-const POSITIONS: { tag: string; label: string; title: string }[] = [
-  { tag: 'tl', label: '↖', title: 'Top left' },
-  { tag: 'tr', label: '↗', title: 'Top right' },
-  { tag: 'c',  label: '◎', title: 'Center' },
-  { tag: 'bl', label: '↙', title: 'Bottom left' },
-  { tag: 'br', label: '↘', title: 'Bottom right' },
-];
-
 export function OverlayControls() {
   const o = useOverlayBridge();
   const [open, setOpen] = useState(false);
@@ -54,34 +46,6 @@ export function OverlayControls() {
               aria-label="Overlay opacity"
             />
             <span className="overlay-pop-val">{Math.round(o.opacity * 100)}%</span>
-          </div>
-
-          <div className="overlay-pop-row">
-            <span className="overlay-pop-label">Click-through</span>
-            <button
-              type="button"
-              className={`overlay-toggle ${o.glance ? 'on' : ''}`}
-              role="switch"
-              aria-checked={o.glance}
-              onClick={() => o.setGlance(!o.glance)}
-              title={o.glance ? '메뉴바 아이콘에서 다시 해제할 수 있어요' : '마우스가 패널을 통과합니다'}
-            >{o.glance ? 'ON' : 'OFF'}</button>
-          </div>
-
-          <div className="overlay-pop-row">
-            <span className="overlay-pop-label">Position</span>
-            <div className="overlay-pos-grid">
-              {POSITIONS.map((p) => (
-                <button
-                  key={p.tag}
-                  type="button"
-                  className="overlay-pos-btn"
-                  onClick={() => o.setPosition(p.tag)}
-                  title={p.title}
-                  aria-label={p.title}
-                >{p.label}</button>
-              ))}
-            </div>
           </div>
 
           <div className="overlay-pop-actions">
