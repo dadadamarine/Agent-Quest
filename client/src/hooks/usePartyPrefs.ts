@@ -7,7 +7,7 @@ export interface PartyPrefs {
 }
 
 export const DEFAULT_PARTY_PREFS: PartyPrefs = {
-  foldState: 'full',
+  foldState: 'icons',
 };
 
 const STORAGE_KEY = 'agentquest:partyBar:prefs';

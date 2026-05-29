@@ -94,13 +94,6 @@ export default function App() {
   useEffect(() => {
     const onReady = () => {
       setVillageReady(true);
-      try {
-        if (localStorage.getItem('agent-quest:tutorial-seen') !== '1') {
-          setTutorialOpen(true);
-        }
-      } catch {
-        setTutorialOpen(true);
-      }
     };
     eventBridge.on('village:ready', onReady);
     return () => eventBridge.off('village:ready', onReady);
