@@ -3,7 +3,6 @@ import type { AgentState } from '../types/agent';
 import { eventBridge } from '../game/EventBridge';
 import { readAutoCameraPreference, writeAutoCameraPreference } from '../game/camera/autoCameraPref';
 import './TopBar.css';
-import { OverlayControls } from './OverlayControls';
 
 interface TopBarProps {
   agents: AgentState[];
@@ -206,7 +205,6 @@ export function TopBar({
             >
               {'\u{2753}'}
             </button>
-            <OverlayControls />
           </div>
         </div>
 
