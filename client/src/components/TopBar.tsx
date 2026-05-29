@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { AgentState } from '../types/agent';
 import { eventBridge } from '../game/EventBridge';
+import { readAutoCameraPreference, writeAutoCameraPreference } from '../game/camera/autoCameraPref';
 import './TopBar.css';
 
 interface TopBarProps {
@@ -23,6 +24,9 @@ export function TopBar({
 
   const [nightOn, setNightOn] = useState(false);
   const [rainOn, setRainOn] = useState(false);
+  // Persisted in localStorage (default ON); VillageScene reads the same
+  // preference on create, so this only needs to emit on user change.
+  const [autoCameraOn, setAutoCameraOn] = useState(readAutoCameraPreference);
   const [menuOpen, setMenuOpen] = useState(false);
   const hamburgerRef = useRef<HTMLButtonElement>(null);
 
@@ -36,6 +40,13 @@ export function TopBar({
     const next = !rainOn;
     setRainOn(next);
     eventBridge.emit('effect:rain:toggle', next);
+  };
+
+  const toggleAutoCamera = () => {
+    const next = !autoCameraOn;
+    setAutoCameraOn(next);
+    writeAutoCameraPreference(next);
+    eventBridge.emit('camera:auto:toggle', next);
   };
 
   const closeMenu = () => {
@@ -160,6 +171,20 @@ export function TopBar({
             >
               {showCompletedAgents ? '\u{1F441}\u{FE0F}' : '\u{1F47B}'}
             </button>
+            <button
+              type="button"
+              className={`topbar-effect-btn ${autoCameraOn ? 'active' : ''}`}
+              onClick={toggleAutoCamera}
+              aria-pressed={autoCameraOn}
+              aria-label={
+                autoCameraOn
+                  ? 'Turn off auto-follow camera (currently following active agents)'
+                  : 'Turn on auto-follow camera (follow active agents)'
+              }
+              title={autoCameraOn ? 'Auto-follow camera: on' : 'Auto-follow camera: off'}
+            >
+              {'\u{1F3A5}'}
+            </button>
             <a
               className="topbar-effect-btn"
               data-mobile-hide="true"
@@ -172,8 +197,10 @@ export function TopBar({
               {'\u{1F5FA}\u{FE0F}'}
             </a>
             <button
+              type="button"
               className="topbar-effect-btn"
               onClick={() => eventBridge.emit('tutorial:open')}
+              aria-label="Show tutorial"
               title="Show tutorial"
             >
               {'\u{2753}'}
