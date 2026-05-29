@@ -2,18 +2,15 @@ import { useCallback, useEffect, useState } from 'react';
 
 interface OverlayState {
   opacity: number;
-  glance: boolean;
 }
 
 interface OverlayWindow extends Window {
-  __AGENT_QUEST_OVERLAY__?: { available?: boolean; opacity?: number; glance?: boolean };
+  __AGENT_QUEST_OVERLAY__?: { available?: boolean; opacity?: number };
   webkit?: { messageHandlers?: { overlay?: { postMessage: (msg: unknown) => void } } };
 }
 
 type OverlayAction =
   | { action: 'setOpacity'; value: number }
-  | { action: 'setGlance'; value: boolean }
-  | { action: 'setPosition'; value: string }
   | { action: 'hide' }
   | { action: 'reload' }
   | { action: 'openBrowser' }
@@ -28,10 +25,7 @@ export interface OverlayBridge {
   /** True only when the dashboard runs inside the native overlay app. */
   available: boolean;
   opacity: number;
-  glance: boolean;
   setOpacity: (v: number) => void;
-  setGlance: (on: boolean) => void;
-  setPosition: (tag: string) => void;
   hide: () => void;
   reload: () => void;
   openBrowser: () => void;
@@ -41,8 +35,8 @@ export interface OverlayBridge {
 /**
  * Bridge to the native macOS overlay panel. In a normal browser the bridge is
  * absent and `available` is false, so callers render nothing. Inside the
- * overlay's WKWebView it drives the panel (opacity, click-through, position …)
- * and stays in sync with changes made from the menu bar.
+ * overlay's WKWebView it drives the panel (opacity, reload, restart …) and
+ * stays in sync with changes made from the menu bar.
  */
 export function useOverlayBridge(): OverlayBridge {
   const w = window as OverlayWindow;
@@ -51,7 +45,6 @@ export function useOverlayBridge(): OverlayBridge {
 
   const [state, setState] = useState<OverlayState>({
     opacity: initial?.opacity ?? 1,
-    glance: initial?.glance ?? false,
   });
 
   useEffect(() => {
@@ -60,7 +53,6 @@ export function useOverlayBridge(): OverlayBridge {
       if (!detail) return;
       setState((prev) => ({
         opacity: typeof detail.opacity === 'number' ? detail.opacity : prev.opacity,
-        glance: typeof detail.glance === 'boolean' ? detail.glance : prev.glance,
       }));
     };
     window.addEventListener('agentquest-overlay-state', onState);
@@ -76,12 +68,6 @@ export function useOverlayBridge(): OverlayBridge {
     send({ action: 'setOpacity', value: v });
   }, [send]);
 
-  const setGlance = useCallback((on: boolean) => {
-    setState((p) => ({ ...p, glance: on }));
-    send({ action: 'setGlance', value: on });
-  }, [send]);
-
-  const setPosition = useCallback((tag: string) => send({ action: 'setPosition', value: tag }), [send]);
   const hide = useCallback(() => send({ action: 'hide' }), [send]);
   const reload = useCallback(() => send({ action: 'reload' }), [send]);
   const openBrowser = useCallback(() => send({ action: 'openBrowser' }), [send]);
@@ -90,7 +76,6 @@ export function useOverlayBridge(): OverlayBridge {
   return {
     available,
     opacity: state.opacity,
-    glance: state.glance,
-    setOpacity, setGlance, setPosition, hide, reload, openBrowser, restartServer,
+    setOpacity, hide, reload, openBrowser, restartServer,
   };
 }

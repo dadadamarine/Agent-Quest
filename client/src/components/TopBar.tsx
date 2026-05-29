@@ -123,7 +123,6 @@ export function TopBar({
           </div>
 
           <div className="topbar-effects">
-            <OverlayControls />
             <button
               type="button"
               className={`topbar-effect-btn ${nightOn ? 'active' : ''}`}
@@ -180,6 +179,7 @@ export function TopBar({
             >
               {'\u{2753}'}
             </button>
+            <OverlayControls />
           </div>
         </div>
 
