@@ -127,7 +127,7 @@ describe('getBuildingForActivity — landmarks excluded from activity routing', 
   });
 });
 
-describe('computeVillageBounds — tight village footprint (issue #63)', () => {
+describe('computeVillageBounds — tight named-building footprint (issue #63/#65)', () => {
   const within = (
     point: { x: number; y: number },
     bounds: { centerX: number; centerY: number; width: number; height: number },
@@ -135,14 +135,40 @@ describe('computeVillageBounds — tight village footprint (issue #63)', () => {
     Math.abs(point.x - bounds.centerX) <= bounds.width / 2 &&
     Math.abs(point.y - bounds.centerY) <= bounds.height / 2;
 
+  // Asymmetric padding mirrors building-layout.ts: sprites use setOrigin(0.5, 1)
+  // (foot at the def coord, art grows up), so the top gets a full sprite height
+  // while the sides/bottom stay thin to minimise empty grass.
+  const PADDING_TOP = 130;
+  const PADDING_SIDE = 60;
+
   test('matches the expected regression bounds for the current layout', () => {
-    // Buildings + council bbox: x 1150–1720, y 450–900 → center (1435, 675),
-    // span 570×450; + 140 padding per side → 850×730.
+    // Named buildings bbox: x 1150–1720, y 450–900 → span 570×450.
+    // + asymmetric padding (top 130, side/bottom 60) → 690×640, centred (1435, 640).
     expect(VILLAGE_BOUNDS).toEqual({
       centerX: 1435,
-      centerY: 675,
-      width: 850,
-      height: 730,
+      centerY: 640,
+      width: 690,
+      height: 640,
+    });
+  });
+
+  test('is derived from the named buildings only, not the council landmark', () => {
+    // Recompute purely from BUILDING_DEFS + the documented asymmetric padding.
+    // If computeVillageBounds ever folds a landmark back into the bbox, this
+    // independent derivation diverges and the test fails.
+    const minX = Math.min(...BUILDING_DEFS.map((b) => b.x));
+    const maxX = Math.max(...BUILDING_DEFS.map((b) => b.x));
+    const minY = Math.min(...BUILDING_DEFS.map((b) => b.y));
+    const maxY = Math.max(...BUILDING_DEFS.map((b) => b.y));
+    const left = minX - PADDING_SIDE;
+    const right = maxX + PADDING_SIDE;
+    const top = minY - PADDING_TOP;
+    const bottom = maxY + PADDING_SIDE;
+    expect(VILLAGE_BOUNDS).toEqual({
+      centerX: (left + right) / 2,
+      centerY: (top + bottom) / 2,
+      width: right - left,
+      height: bottom - top,
     });
   });
 
@@ -152,7 +178,9 @@ describe('computeVillageBounds — tight village footprint (issue #63)', () => {
     }
   });
 
-  test('contains the council landmark', () => {
+  test('keeps the council landmark in view even though it does not drive the box', () => {
+    // The council sits inside the named-building bbox by layout, so it stays
+    // on-screen — but it is excluded from the bbox computation (issue #65).
     const council = findCouncil();
     expect(within({ x: council.x, y: council.y }, VILLAGE_BOUNDS)).toBe(true);
   });
@@ -162,6 +190,27 @@ describe('computeVillageBounds — tight village footprint (issue #63)', () => {
     const chapel = BUILDING_DEFS.find((b) => b.id === 'chapel')!;
     expect(within(watchtower, VILLAGE_BOUNDS)).toBe(true);
     expect(within(chapel, VILLAGE_BOUNDS)).toBe(true);
+  });
+
+  test('hugs the buildings tightly — side/bottom grass margins equal PADDING_SIDE', () => {
+    // The closest building edges (footprint) should sit exactly PADDING_SIDE from
+    // the box on the left/right/bottom, proving the empty grass band is minimal.
+    const minX = Math.min(...BUILDING_DEFS.map((b) => b.x));
+    const maxX = Math.max(...BUILDING_DEFS.map((b) => b.x));
+    const maxY = Math.max(...BUILDING_DEFS.map((b) => b.y));
+    const left = VILLAGE_BOUNDS.centerX - VILLAGE_BOUNDS.width / 2;
+    const right = VILLAGE_BOUNDS.centerX + VILLAGE_BOUNDS.width / 2;
+    const bottom = VILLAGE_BOUNDS.centerY + VILLAGE_BOUNDS.height / 2;
+    expect(minX - left).toBe(PADDING_SIDE);
+    expect(right - maxX).toBe(PADDING_SIDE);
+    expect(bottom - maxY).toBe(PADDING_SIDE);
+  });
+
+  test('reserves extra headroom above the top building (sprite grows up)', () => {
+    const minY = Math.min(...BUILDING_DEFS.map((b) => b.y));
+    const top = VILLAGE_BOUNDS.centerY - VILLAGE_BOUNDS.height / 2;
+    expect(minY - top).toBe(PADDING_TOP);
+    expect(PADDING_TOP).toBeGreaterThan(PADDING_SIDE);
   });
 
   test('excludes the far NPC village and the south gate (kept tight)', () => {
