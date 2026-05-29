@@ -5,6 +5,7 @@ import { findRoadPath, type Point } from '../data/road-network';
 import { addCrispText } from '../text';
 import { truncateLabel } from '../../utils/truncateLabel';
 import { computeSpriteScale } from './hero-scale';
+import { computeHeroDepths } from './heroDepth';
 
 const MOVE_SPEED = 150;
 /** Ground distance covered by one full run-cycle. Keeps legs synced to travel. */
@@ -103,6 +104,8 @@ export class HeroSprite {
   private nameBaseColor = '#DDDDDD';
   private selectionTween: Phaser.Tweens.Tween | null = null;
   private selectionHalo: Phaser.GameObjects.Image | null = null;
+  /** Whether this hero is the selected/followed one — lifts its depth above the crowd. */
+  private _selected = false;
   private wanderTimer: Phaser.Time.TimerEvent | null = null;
 
   /** Grid base position — used for slot repositioning. */
@@ -286,6 +289,7 @@ export class HeroSprite {
   }
 
   setSelected(selected: boolean): void {
+    this._selected = selected;
     if (this.selectionTween !== null) {
       this.selectionTween.stop();
       this.selectionTween = null;
@@ -300,7 +304,6 @@ export class HeroSprite {
       const halo = this.scene.add.image(this._x, this._y, HALO_TEXTURE_KEY);
       halo.setDisplaySize(diameter, diameter);
       halo.setAlpha(0.35);
-      halo.setDepth(this.sprite.depth - 0.1);
       this.selectionHalo = halo;
       const baseScale = halo.scaleX;
       this.selectionTween = this.scene.tweens.add({
@@ -314,11 +317,24 @@ export class HeroSprite {
         ease: 'Sine.easeInOut',
       });
       this.nameText.setColor('#FFFFFF');
+      // Selected hero's bubble stays fully opaque so it reads clearly even when
+      // overlapping others (kept explicit for when global dimming is added).
       this.setBubbleAlpha(1.0);
     } else {
       this.refreshNameColor();
       this.setBubbleAlpha(1.0);
     }
+    // Re-apply depth so the selected hero (sprite + halo + labels + bubble) is
+    // lifted above the crowd, or returns to footY ordering on deselect.
+    this.updateDepth();
+  }
+
+  /**
+   * The Phaser object the camera should follow (issue #44). Exposes the sprite
+   * for `cam.startFollow` while keeping the rest of HeroSprite encapsulated.
+   */
+  get followTarget(): Phaser.GameObjects.Sprite {
+    return this.sprite;
   }
 
   /** Reflect activity / waiting / error state in the name color (single visual signal). */
@@ -477,16 +493,19 @@ export class HeroSprite {
   }
 
   private updateDepth(): void {
+    // Labels render above buildings (buildings sort by their foot-y too, so the
+    // label offsets put hero labels in front of any building at the same row).
+    // When selected, computeHeroDepths lifts the whole hero above the crowd
+    // (but below atmospheric overlays) so it stays visible through overlaps.
     const footY = this._y + this.sprite.displayHeight * 0.5;
-    this.sprite.setDepth(footY + 0.5);
-    // Labels render above buildings (buildings sort by their foot-y too,
-    // so footY + 1 puts hero labels in front of any building at the same row).
-    this.nameText.setDepth(footY + 1.1);
-    this.bubbleBg.setDepth(footY + 1.0);
-    this.taskText.setDepth(footY + 1.1);
-    this.activityMsgText.setDepth(footY + 1.1);
-    this.indexText.setDepth(footY + 1.2);
-    if (this.selectionHalo !== null) this.selectionHalo.setDepth(footY + 0.4);
+    const depths = computeHeroDepths(footY, this._selected);
+    this.sprite.setDepth(depths.sprite);
+    this.nameText.setDepth(depths.nameText);
+    this.bubbleBg.setDepth(depths.bubbleBg);
+    this.taskText.setDepth(depths.taskText);
+    this.activityMsgText.setDepth(depths.activityMsgText);
+    this.indexText.setDepth(depths.indexText);
+    if (this.selectionHalo !== null) this.selectionHalo.setDepth(depths.halo);
   }
 
   /**

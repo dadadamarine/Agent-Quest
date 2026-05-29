@@ -19,6 +19,20 @@ import { computeFitGoal } from '../camera/autoCameraPlanning';
 import type { AutoCameraConfig, CameraTarget } from '../camera/autoCameraPlanning';
 import type { AutoCameraTiming } from '../camera/autoCameraState';
 import { readAutoCameraPreference } from '../camera/autoCameraPref';
+import {
+  reduceSelection,
+  reduceManualDrag,
+  reduceAutoCamToggle,
+  reduceHeroRemoved,
+  type CameraFollowState,
+  type CameraFollowEffect,
+} from './cameraFollowPolicy';
+import {
+  NIGHT_OVERLAY_DEPTH,
+  RAIN_EMITTER_DEPTH,
+  RAIN_SPLASH_DEPTH,
+  RAIN_DARKEN_DEPTH,
+} from '../renderDepth';
 
 /** Set `cam.zoom` to `newZoom` while keeping the world point currently
  * under screen coordinates (sx, sy) pinned to the same screen spot.
@@ -73,6 +87,8 @@ const AUTO_CAMERA_TIMING: AutoCameraTiming = {
 
 /** Per-frame smoothing for the auto camera — gentle to avoid motion sickness. */
 const AUTO_CAMERA_LERP = 0.08;
+/** Camera follow smoothing for the selected hero (issue #44). */
+const FOLLOW_LERP = 0.1;
 const AUTO_CAMERA_MAX_ZOOM_DELTA = 0.02;
 
 export class VillageScene extends Phaser.Scene {
@@ -87,6 +103,14 @@ export class VillageScene extends Phaser.Scene {
 
   /** Auto camera — follows active agents; null until create(). */
   private autoCam: AutoCameraController | null = null;
+  /**
+   * Camera follow ownership (issue #44). Mutated only through the pure
+   * cameraFollowPolicy reducers; effects are applied via applyFollowEffect.
+   */
+  private followState: CameraFollowState = {
+    followedHeroId: null,
+    userAutoCamEnabled: readAutoCameraPreference(),
+  };
   private onAutoCameraToggle: ((on: unknown) => void) | null = null;
   /** Named so it can be removed in cleanup (the scene has several anonymous
    * 'update' listeners that can't be individually detached). */
@@ -182,6 +206,15 @@ export class VillageScene extends Phaser.Scene {
       enabled: readAutoCameraPreference(),
     });
 
+    // Reset follow state on (re)create so a restarted scene never inherits a
+    // stale followedHeroId — otherwise reduceAutoCamToggle would treat the
+    // scene as following and keep the freshly-built auto-cam disabled. Mirrors
+    // the auto-cam being rebuilt just above.
+    this.followState = {
+      followedHeroId: null,
+      userAutoCamEnabled: readAutoCameraPreference(),
+    };
+
     this.onAutoCameraUpdate = (time: number) => {
       this.autoCam?.update(time);
     };
@@ -222,6 +255,11 @@ export class VillageScene extends Phaser.Scene {
       const dy = pointer.y - dragStartY;
       if (!isDragging && Math.abs(dx) + Math.abs(dy) > 8) {
         isDragging = true;
+        // A manual pan releases hero follow (issue #44). Stop following first so
+        // the scrollX/Y writes below are not overwritten by Phaser's follow.
+        const { state, effect } = reduceManualDrag(this.followState);
+        this.followState = state;
+        this.applyFollowEffect(effect);
       }
       if (isDragging) {
         const cam = this.cameras.main;
@@ -275,7 +313,7 @@ export class VillageScene extends Phaser.Scene {
     this.nightOverlay.fillRect(-WORLD_WIDTH, -WORLD_HEIGHT, WORLD_WIDTH * 3, WORLD_HEIGHT * 3);
     // Depth must exceed the maximum Y-sorted sprite depth (~WORLD_HEIGHT) so
      // buildings and decorations placed near the bottom of the map stay covered.
-    this.nightOverlay.setDepth(5000);
+    this.nightOverlay.setDepth(NIGHT_OVERLAY_DEPTH);
     this.nightOverlay.setVisible(false);
 
     this.onNightToggle = (on: unknown) => {
@@ -333,7 +371,7 @@ export class VillageScene extends Phaser.Scene {
       frequency: 10,
       emitting: false,
     });
-    this.rainEmitter.setDepth(5001);
+    this.rainEmitter.setDepth(RAIN_EMITTER_DEPTH);
 
     // Ground splashes — short-lived puffs emitted across the viewport floor.
     this.rainSplashZone = new Phaser.Geom.Rectangle(0, 0, WORLD_WIDTH, 1);
@@ -347,13 +385,13 @@ export class VillageScene extends Phaser.Scene {
       frequency: 45,
       emitting: false,
     });
-    this.rainSplashEmitter.setDepth(5000);
+    this.rainSplashEmitter.setDepth(RAIN_SPLASH_DEPTH);
 
     // Storm darkening overlay — activates with rain, independent from night mode.
     this.rainDarkenOverlay = this.add.graphics();
     this.rainDarkenOverlay.fillStyle(0x1a2a3a, 0.30);
     this.rainDarkenOverlay.fillRect(-WORLD_WIDTH, -WORLD_HEIGHT, WORLD_WIDTH * 3, WORLD_HEIGHT * 3);
-    this.rainDarkenOverlay.setDepth(4997);
+    this.rainDarkenOverlay.setDepth(RAIN_DARKEN_DEPTH);
     this.rainDarkenOverlay.setVisible(false);
 
     // Keep emit zones aligned with the current camera worldView, but clamped
@@ -443,7 +481,12 @@ export class VillageScene extends Phaser.Scene {
     // left wherever it is so the user keeps their current view.
     this.onAutoCameraToggle = (on: unknown) => {
       if (typeof on !== 'boolean') return;
-      this.autoCam?.setEnabled(on);
+      // Record the user's latest intent. While following, auto-cam stays off so
+      // it does not fight the follow; the intent is restored on follow exit
+      // (issue #44 — avoids a stale snapshot overwriting a mid-follow toggle).
+      const { state, effect } = reduceAutoCamToggle(this.followState, on);
+      this.followState = state;
+      this.applyFollowEffect(effect);
     };
     eventBridge.on('camera:auto:toggle', this.onAutoCameraToggle);
 
@@ -453,6 +496,13 @@ export class VillageScene extends Phaser.Scene {
       for (const [id, hero] of this.heroes) {
         hero.setSelected(id === selectedId);
       }
+      // Enter follow on the selected hero (issue #44). Fail closed: if the id is
+      // null or not yet in the scene, the reducer exits follow instead of
+      // tracking a missing target.
+      const heroExists = selectedId !== null && this.heroes.has(selectedId);
+      const { state, effect } = reduceSelection(this.followState, selectedId, heroExists);
+      this.followState = state;
+      this.applyFollowEffect(effect);
     };
     eventBridge.on('selection:changed', this.onSelectionChanged);
 
@@ -637,6 +687,25 @@ export class VillageScene extends Phaser.Scene {
     const zoomX = cam.width / VILLAGE_FIT_WIDTH;
     const zoomY = cam.height / VILLAGE_FIT_HEIGHT;
     cam.setZoom(Phaser.Math.Clamp(Math.min(zoomX, zoomY) * VILLAGE_FIT_MARGIN, this.minZoom(), MAX_ZOOM));
+  }
+
+  /**
+   * Apply a {@link CameraFollowEffect} from the cameraFollowPolicy reducer to
+   * the real camera and AutoCameraController (issue #44). VillageScene is the
+   * Humble Object: all follow-state decisions live in the pure reducer, this
+   * method only performs the side effects. Zoom is left untouched — only the
+   * centre tracks the hero — so wheel/pinch zoom keeps working while following.
+   */
+  private applyFollowEffect(effect: CameraFollowEffect): void {
+    const cam = this.cameras.main;
+    if (effect.stopFollow) cam.stopFollow();
+    if (effect.startFollowHeroId !== null) {
+      const hero = this.heroes.get(effect.startFollowHeroId);
+      if (hero !== undefined) {
+        cam.startFollow(hero.followTarget, true, FOLLOW_LERP, FOLLOW_LERP);
+      }
+    }
+    this.autoCam?.setEnabled(effect.autoCamEnabled);
   }
 
   /** Lower zoom bound: the larger of the two viewport/world ratios, so the
@@ -840,6 +909,10 @@ export class VillageScene extends Phaser.Scene {
         const oldBuilding = this.removeFromSlot(id);
         hero.destroy();
         this.heroes.delete(id);
+        // Stop following a hero that just left the village (issue #44).
+        const { state, effect } = reduceHeroRemoved(this.followState, id);
+        this.followState = state;
+        this.applyFollowEffect(effect);
         if (oldBuilding !== undefined) {
           this.repositionBuilding(oldBuilding);
         }
