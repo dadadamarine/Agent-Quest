@@ -14,6 +14,10 @@ import type { AssetManifest, MapConfig, BuildingPosition, NpcPlacement } from '.
 import { SERVER_URL as API_BASE } from '../../config';
 import { getActiveTheme, rebaseSavedScale } from '../themes/registry';
 import { computeShowSourceBadge, computePartyOrder } from '../../presentation/agentPresentation';
+import { AutoCameraController } from '../camera/AutoCameraController';
+import type { AutoCameraConfig } from '../camera/autoCameraPlanning';
+import type { AutoCameraTiming } from '../camera/autoCameraState';
+import { readAutoCameraPreference } from '../camera/autoCameraPref';
 
 /** Set `cam.zoom` to `newZoom` while keeping the world point currently
  * under screen coordinates (sx, sy) pinned to the same screen spot.
@@ -34,6 +38,42 @@ const IDLE_HIDE_THRESHOLD_MS = 2 * 60 * 60 * 1000; // 2 hours
 const GRID_SPACING_X = 40;
 const GRID_SPACING_Y = 35;
 
+/** Maximum manual zoom (matches the wheel/pinch cap). */
+const MAX_ZOOM = 1.5;
+
+/** Village framing — the area both fitCamera() and the auto overview frame.
+ * Shared so the manual fit and the auto overview can never drift apart. */
+const VILLAGE_FIT_WIDTH = 1100;
+const VILLAGE_FIT_HEIGHT = 700;
+const VILLAGE_FIT_MARGIN = 0.85;
+
+/** Auto-camera framing config — how it frames the village and active agents. */
+const AUTO_CAMERA_CONFIG: AutoCameraConfig = {
+  worldWidth: WORLD_WIDTH,
+  worldHeight: WORLD_HEIGHT,
+  villageWidth: VILLAGE_FIT_WIDTH,
+  villageHeight: VILLAGE_FIT_HEIGHT,
+  villageCenterX: WORLD_WIDTH / 2,
+  villageCenterY: WORLD_HEIGHT / 2,
+  overviewMargin: VILLAGE_FIT_MARGIN,
+  groupMargin: 0.8,
+  focusZoom: 1.15,
+  maxZoom: MAX_ZOOM,
+  minGroupWidth: 600,
+  minGroupHeight: 400,
+};
+
+/** Auto-camera timing — debounce/idle/manual-pause windows (issue #38). */
+const AUTO_CAMERA_TIMING: AutoCameraTiming = {
+  manualResumeMs: 5000,
+  idleOverviewMs: 8000,
+  focusDebounceMs: 800,
+};
+
+/** Per-frame smoothing for the auto camera — gentle to avoid motion sickness. */
+const AUTO_CAMERA_LERP = 0.08;
+const AUTO_CAMERA_MAX_ZOOM_DELTA = 0.02;
+
 export class VillageScene extends Phaser.Scene {
   private buildings: Building[] = [];
   private landmarks: Landmark[] = [];
@@ -42,6 +82,16 @@ export class VillageScene extends Phaser.Scene {
   private onCameraFollow: ((agentId: unknown) => void) | null = null;
   private onSelectionChanged: ((agentId: unknown) => void) | null = null;
   private onBackgroundPointerDown: ((pointer: Phaser.Input.Pointer, hits: Phaser.GameObjects.GameObject[]) => void) | null = null;
+
+  /** Auto camera — follows active agents; null until create(). */
+  private autoCam: AutoCameraController | null = null;
+  private onAutoCameraToggle: ((on: unknown) => void) | null = null;
+  /** Named so it can be removed in cleanup (the scene has several anonymous
+   * 'update' listeners that can't be individually detached). */
+  private onAutoCameraUpdate: ((time: number) => void) | null = null;
+  /** Named resize handler so cleanup can detach it — otherwise a stale closure
+   * survives scene restart and touches a destroyed camera on the next resize. */
+  private onResize: ((gameSize: Phaser.Structs.Size) => void) | null = null;
 
   /** Tracks which hero IDs are at each building, in arrival order. */
   private buildingSlots = new Map<string, string[]>();
@@ -117,14 +167,36 @@ export class VillageScene extends Phaser.Scene {
     this.fitCamera();
     this.cameras.main.centerToBounds();
 
-    // Re-fit when the browser/window resizes. Re-centering on bounds after
-    // the zoom change keeps the map anchored in the middle of the new
-    // viewport instead of drifting to the top-left.
-    this.scale.on('resize', (gameSize: Phaser.Structs.Size) => {
-      this.cameras.main.setViewport(0, 0, gameSize.width, gameSize.height);
-      this.fitCamera();
-      this.cameras.main.centerToBounds();
+    // Auto camera — owns camera writes while enabled (issue #38). Starts from
+    // the persisted preference (default ON). When enabled it smoothly takes
+    // over from the initial fit above on the first update tick.
+    this.autoCam = new AutoCameraController(this.cameras.main, {
+      config: AUTO_CAMERA_CONFIG,
+      timing: AUTO_CAMERA_TIMING,
+      lerpFactor: AUTO_CAMERA_LERP,
+      maxZoomDeltaPerFrame: AUTO_CAMERA_MAX_ZOOM_DELTA,
+      centerEpsilon: 2,
+      zoomEpsilon: 0.005,
+      enabled: readAutoCameraPreference(),
     });
+
+    this.onAutoCameraUpdate = (time: number) => {
+      this.autoCam?.update(time);
+    };
+    this.events.on('update', this.onAutoCameraUpdate);
+
+    // Re-fit when the browser/window resizes. While the auto camera is on it
+    // owns framing, so only re-fit/center manually when it's off — otherwise a
+    // resize would yank an active focus back to overview.
+    this.onResize = (gameSize: Phaser.Structs.Size) => {
+      try { if (!this.sys.isActive()) return; } catch { return; }
+      this.cameras.main.setViewport(0, 0, gameSize.width, gameSize.height);
+      if (this.autoCam?.enabled !== true) {
+        this.fitCamera();
+        this.cameras.main.centerToBounds();
+      }
+    };
+    this.scale.on('resize', this.onResize);
 
     // Drag to pan (mouse + touch, with threshold to avoid interfering with building clicks)
     let dragStartX = 0;
@@ -153,6 +225,7 @@ export class VillageScene extends Phaser.Scene {
         const cam = this.cameras.main;
         cam.scrollX -= (pointer.x - pointer.prevPosition.x) / cam.zoom;
         cam.scrollY -= (pointer.y - pointer.prevPosition.y) / cam.zoom;
+        this.autoCam?.notifyManualInteraction(this.time.now);
       }
     });
 
@@ -163,8 +236,9 @@ export class VillageScene extends Phaser.Scene {
     // map is locked to the top-left corner while the viewport scales.
     this.input.on('wheel', (pointer: Phaser.Input.Pointer, _gameObjects: unknown[], _deltaX: number, deltaY: number) => {
       const cam = this.cameras.main;
-      const newZoom = Phaser.Math.Clamp(cam.zoom - deltaY * 0.001, this.minZoom(), 1.5);
+      const newZoom = Phaser.Math.Clamp(cam.zoom - deltaY * 0.001, this.minZoom(), MAX_ZOOM);
       zoomAroundPointer(cam, pointer.x, pointer.y, newZoom);
+      this.autoCam?.notifyManualInteraction(this.time.now);
     });
 
     // Pinch to zoom (touch) — anchored on the midpoint between the two
@@ -180,10 +254,11 @@ export class VillageScene extends Phaser.Scene {
           pinchStartZoom = this.cameras.main.zoom;
         } else {
           const scale = dist / pinchStartDist;
-          const newZoom = Phaser.Math.Clamp(pinchStartZoom * scale, this.minZoom(), 1.5);
+          const newZoom = Phaser.Math.Clamp(pinchStartZoom * scale, this.minZoom(), MAX_ZOOM);
           const mx = (p1.x + p2.x) / 2;
           const my = (p1.y + p2.y) / 2;
           zoomAroundPointer(this.cameras.main, mx, my, newZoom);
+          this.autoCam?.notifyManualInteraction(this.time.now);
         }
       } else {
         pinchStartDist = 0;
@@ -333,9 +408,21 @@ export class VillageScene extends Phaser.Scene {
       try { if (!this.sys.isActive()) return; } catch { return; }
       const hero = this.heroes.get(agentId);
       if (hero === undefined) return;
+      // A deliberate click-to-follow is a manual intent — pause the auto camera
+      // so its update doesn't fight this pan tween.
+      this.autoCam?.notifyManualInteraction(this.time.now);
       this.cameras.main.pan(hero.x, hero.y, 600, 'Sine.easeInOut');
     };
     eventBridge.on('camera:follow', this.onCameraFollow);
+
+    // Toggle the auto camera on/off (TopBar). Persistence is owned by TopBar;
+    // the scene only applies the enabled flag. When turned off, the camera is
+    // left wherever it is so the user keeps their current view.
+    this.onAutoCameraToggle = (on: unknown) => {
+      if (typeof on !== 'boolean') return;
+      this.autoCam?.setEnabled(on);
+    };
+    eventBridge.on('camera:auto:toggle', this.onAutoCameraToggle);
 
     // Apply outline/tint to the selected hero whenever selection changes.
     this.onSelectionChanged = (agentId: unknown) => {
@@ -384,6 +471,20 @@ export class VillageScene extends Phaser.Scene {
         this.input.off('pointerdown', this.onBackgroundPointerDown);
         this.onBackgroundPointerDown = null;
       }
+      if (this.onAutoCameraToggle !== null) {
+        eventBridge.off('camera:auto:toggle', this.onAutoCameraToggle);
+        this.onAutoCameraToggle = null;
+      }
+      if (this.onAutoCameraUpdate !== null) {
+        this.events.off('update', this.onAutoCameraUpdate);
+        this.onAutoCameraUpdate = null;
+      }
+      if (this.onResize !== null) {
+        this.scale.off('resize', this.onResize);
+        this.onResize = null;
+      }
+      this.autoCam?.destroy();
+      this.autoCam = null;
       this.lightningTimer?.remove();
       this.lightningTimer = null;
       for (const hero of this.heroes.values()) {
@@ -501,14 +602,14 @@ export class VillageScene extends Phaser.Scene {
     }
   }
 
-  /** Calculate zoom so the village area (~1100×700 centred at 1400,780) fills the viewport. */
+  /** Calculate zoom so the village area fills the viewport. Uses the same
+   * framing constants as the auto overview (AUTO_CAMERA_CONFIG) so the two
+   * stay in lockstep. */
   private fitCamera(): void {
     const cam = this.cameras.main;
-    const villageW = 1100;
-    const villageH = 700;
-    const zoomX = cam.width / villageW;
-    const zoomY = cam.height / villageH;
-    cam.setZoom(Phaser.Math.Clamp(Math.min(zoomX, zoomY) * 0.85, this.minZoom(), 1.5));
+    const zoomX = cam.width / VILLAGE_FIT_WIDTH;
+    const zoomY = cam.height / VILLAGE_FIT_HEIGHT;
+    cam.setZoom(Phaser.Math.Clamp(Math.min(zoomX, zoomY) * VILLAGE_FIT_MARGIN, this.minZoom(), MAX_ZOOM));
   }
 
   /** Lower zoom bound: the larger of the two viewport/world ratios, so the
@@ -798,5 +899,17 @@ export class VillageScene extends Phaser.Scene {
     for (const buildingId of buildingsToReposition) {
       this.repositionBuilding(buildingId);
     }
+
+    // Feed the auto camera the currently active heroes (status === 'active').
+    // Collected after repositioning so the first focus uses the settled slot
+    // position rather than the spawn point. HeroSprite satisfies CameraTarget
+    // structurally (x/y getters), so the controller tracks moving heroes live.
+    const activeHeroes: HeroSprite[] = [];
+    for (const agent of visible) {
+      if (agent.status !== 'active') continue;
+      const hero = this.heroes.get(agent.id);
+      if (hero !== undefined) activeHeroes.push(hero);
+    }
+    this.autoCam?.setActiveTargets(activeHeroes);
   }
 }

@@ -38,7 +38,8 @@ describe('parsePrefs', () => {
       agentFilter: null,
     });
     const result = parsePrefs(raw);
-    expect(result.foldState).toBe('full');
+    // DEFAULT_PREFS.foldState is 'closed' since #39 (activity feed starts minimized).
+    expect(result.foldState).toBe('closed');
     expect(result.viewMode).toBe('all');
     expect(result.activeHighlights).toEqual(['edits']);
   });
