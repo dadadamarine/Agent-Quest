@@ -55,6 +55,11 @@ export interface CameraGoal {
   readonly zoom: number;
 }
 
+/** Floor for the fit-box span so a degenerate (zero-area) bounding box can
+ * never divide zoom by zero. Production village dimensions are always positive,
+ * so this only hardens the exported planner against pathological inputs. */
+const MIN_FIT_SPAN = 1;
+
 /** Clamp a center coordinate to a range. When the world is smaller than the
  * viewport (lo > hi), fall back to the midpoint (world center). */
 function clampCenterCoord(value: number, lo: number, hi: number): number {
@@ -151,5 +156,48 @@ export function computeCameraGoal(
     viewport,
     config,
   );
+  return { mode: 'overview', centerX, centerY, zoom };
+}
+
+/**
+ * Frame the whole village plus every hero so a single "fit to view" action
+ * always shows the map and all characters at once. The village rectangle is
+ * always part of the bounding box, so the framing stays stable even when every
+ * hero is clustered together (or there are none) — heroes can only widen the
+ * box, never shrink it below the village footprint. Pure — unit-testable.
+ *
+ * Reuses the same clamp/margin helpers as the auto-camera overview so the
+ * manual fit and the automatic framing never drift apart. Returns the
+ * `'overview'` mode since a fit is a village-framing goal; callers only consume
+ * `centerX`/`centerY`/`zoom` (the mode is informational, not an auto-camera state).
+ */
+export function computeFitGoal(
+  heroTargets: readonly CameraTarget[],
+  viewport: Viewport,
+  config: AutoCameraConfig,
+): CameraGoal {
+  const minZoom = minZoomFor(viewport, config);
+  const halfWidth = config.villageWidth / 2;
+  const halfHeight = config.villageHeight / 2;
+
+  let minX = config.villageCenterX - halfWidth;
+  let maxX = config.villageCenterX + halfWidth;
+  let minY = config.villageCenterY - halfHeight;
+  let maxY = config.villageCenterY + halfHeight;
+  for (const target of heroTargets) {
+    if (target.x < minX) minX = target.x;
+    if (target.x > maxX) maxX = target.x;
+    if (target.y < minY) minY = target.y;
+    if (target.y > maxY) maxY = target.y;
+  }
+
+  const spanX = Math.max(maxX - minX, MIN_FIT_SPAN);
+  const spanY = Math.max(maxY - minY, MIN_FIT_SPAN);
+  const zoom = clampZoom(
+    Math.min(viewport.width / spanX, viewport.height / spanY) * config.overviewMargin,
+    minZoom,
+    config.maxZoom,
+  );
+  const { centerX, centerY } = clampCenter((minX + maxX) / 2, (minY + maxY) / 2, zoom, viewport, config);
   return { mode: 'overview', centerX, centerY, zoom };
 }
