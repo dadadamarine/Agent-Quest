@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'bun:test';
 import {
   computeCameraGoal,
-  computeFitGoal,
+  isWithinDeadzone,
   type AutoCameraConfig,
   type CameraTarget,
   type Viewport,
@@ -106,84 +106,50 @@ describe('computeCameraGoal', () => {
   });
 });
 
-describe('computeFitGoal', () => {
-  // Village rectangle: center (1400, 900), half (550, 350) → corners (850,550)–(1950,1250).
+describe('isWithinDeadzone', () => {
+  // Deadzone box is centred on `center`, sized to ratio × the on-screen world
+  // extent (viewport / zoom). With viewport 1280×800, zoom 1, ratio 0.5 the
+  // half-extents are 0.5 × (1280/1 / 2) = 320 in x and 0.5 × (800/1 / 2) = 200 in y.
+  const center = { x: 1000, y: 600 };
 
-  it('frames the village exactly like the overview when there are no heroes', () => {
-    const goal = computeFitGoal([], viewport, config);
-    expect(goal.centerX).toBe(1400);
-    expect(goal.centerY).toBe(900);
-    // Same fit math as the overview: min(1280/1100, 800/700) * 0.85 ≈ 0.971.
-    expect(goal.zoom).toBeCloseTo(0.971, 2);
-    // Identical to the auto-camera overview so the two never drift apart.
-    const overview = computeCameraGoal('overview', [], viewport, config);
-    expect(goal.zoom).toBeCloseTo(overview.zoom, 5);
-    expect(goal.centerX).toBe(overview.centerX);
-    expect(goal.centerY).toBe(overview.centerY);
+  it('returns false when there are no targets (nothing to hold for)', () => {
+    expect(isWithinDeadzone([], viewport, center, 1, 0.5)).toBe(false);
   });
 
-  it('keeps the village framing when every hero is already inside the village', () => {
-    const insideHeroes: CameraTarget[] = [
-      { x: 1000, y: 700 },
-      { x: 1600, y: 1000 },
+  it('returns true when every target sits inside the deadzone box', () => {
+    const targets: CameraTarget[] = [
+      { x: 1000, y: 600 },
+      { x: 1200, y: 700 },
+      { x: 800, y: 500 },
     ];
-    const goal = computeFitGoal(insideHeroes, viewport, config);
-    // Heroes are within the village rect, so the bounding box is unchanged.
-    expect(goal.centerX).toBe(1400);
-    expect(goal.centerY).toBe(900);
-    expect(goal.zoom).toBeCloseTo(0.971, 2);
+    expect(isWithinDeadzone(targets, viewport, center, 1, 0.5)).toBe(true);
   });
 
-  it('widens the bounding box and zooms out when heroes are outside the village', () => {
-    // Heroes far left/right of the village push minX/maxX past the rect corners.
-    const goal = computeFitGoal([{ x: 300, y: 900 }, { x: 2500, y: 900 }], viewport, config);
-    // bbox X: 300–2500 (span 2200), Y: 550–1250 (village rect, span 700).
-    expect(goal.centerX).toBe(1400);
-    expect(goal.centerY).toBe(900);
-    // min(1280/2200, 800/700) * 0.85 = 0.581818 * 0.85 ≈ 0.4945.
-    expect(goal.zoom).toBeCloseTo(0.4945, 3);
+  it('returns false when a target is outside the box on the x axis', () => {
+    // halfW = 320 → x must stay within [680, 1320]. 1400 is outside.
+    expect(isWithinDeadzone([{ x: 1400, y: 600 }], viewport, center, 1, 0.5)).toBe(false);
   });
 
-  it('clamps the center to world bounds when a lone hero sits near a corner', () => {
-    const goal = computeFitGoal([{ x: 2700, y: 1600 }], viewport, config);
-    // bbox X: 850–2700 (span 1850), Y: 550–1600 (span 1050).
-    // zoom = min(1280/1850, 800/1050) * 0.85 = 0.691892 * 0.85 ≈ 0.5881.
-    expect(goal.zoom).toBeCloseTo(0.5881, 3);
-    // Raw center (1775, 1075); centerX clamps so the viewport stays inside the world.
-    const halfViewW = viewport.width / (2 * goal.zoom);
-    expect(goal.centerX).toBeCloseTo(config.worldWidth - halfViewW, 1);
-    expect(goal.centerY).toBeCloseTo(1075, 1);
+  it('returns false when a target is outside the box on the y axis', () => {
+    // halfH = 200 → y must stay within [400, 800]. 810 is outside.
+    expect(isWithinDeadzone([{ x: 1000, y: 810 }], viewport, center, 1, 0.5)).toBe(false);
   });
 
-  it('clamps zoom to maxZoom for a large viewport', () => {
-    const bigView: Viewport = { width: 3000, height: 2000 };
-    const goal = computeFitGoal([], bigView, config);
-    // Raw fit would exceed maxZoom; it must clamp to 1.5.
-    expect(goal.zoom).toBe(1.5);
+  it('treats a target exactly on the boundary as inside', () => {
+    // x = 1320 (= center + halfW), y = 800 (= center + halfH).
+    expect(isWithinDeadzone([{ x: 1320, y: 800 }], viewport, center, 1, 0.5)).toBe(true);
   });
 
-  it('clamps zoom to minZoom when heroes span the whole world', () => {
-    const goal = computeFitGoal([{ x: 0, y: 0 }, { x: 2800, y: 1800 }], viewport, config);
-    // bbox spans the world; raw fit drops below minZoom and must clamp up.
-    const minZoom = Math.max(viewport.width / config.worldWidth, viewport.height / config.worldHeight);
-    expect(goal.zoom).toBeCloseTo(minZoom, 5);
+  it('shrinks the box as the camera zooms in (smaller on-screen world extent)', () => {
+    // At zoom 2 the on-screen world extent halves: halfW = 0.5 × (1280/2 / 2) = 160.
+    // x = 1200 is +200 from center → now outside, though it was inside at zoom 1.
+    expect(isWithinDeadzone([{ x: 1200, y: 600 }], viewport, center, 1, 0.5)).toBe(true);
+    expect(isWithinDeadzone([{ x: 1200, y: 600 }], viewport, center, 2, 0.5)).toBe(false);
   });
 
-  it('reports overview mode so the scene treats it as a framing goal', () => {
-    const goal = computeFitGoal([{ x: 1000, y: 700 }], viewport, config);
-    expect(goal.mode).toBe('overview');
-  });
-
-  it('keeps finite values when the fit box collapses to a point', () => {
-    const collapsedConfig: AutoCameraConfig = {
-      ...config,
-      villageWidth: 0,
-      villageHeight: 0,
-    };
-    const goal = computeFitGoal([{ x: 1400, y: 900 }], viewport, collapsedConfig);
-    expect(Number.isFinite(goal.zoom)).toBe(true);
-    expect(Number.isFinite(goal.centerX)).toBe(true);
-    expect(Number.isFinite(goal.centerY)).toBe(true);
-    expect(goal.zoom).toBe(collapsedConfig.maxZoom);
+  it('shrinks the box as the ratio decreases (tighter follow box)', () => {
+    // ratio 0.5 → halfW 320 (x=1300 inside); ratio 0.2 → halfW 128 (x=1300 outside).
+    expect(isWithinDeadzone([{ x: 1300, y: 600 }], viewport, center, 1, 0.5)).toBe(true);
+    expect(isWithinDeadzone([{ x: 1300, y: 600 }], viewport, center, 1, 0.2)).toBe(false);
   });
 });
