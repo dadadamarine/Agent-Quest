@@ -41,15 +41,21 @@ const GRID_SPACING_Y = 35;
 /** Maximum manual zoom (matches the wheel/pinch cap). */
 const MAX_ZOOM = 1.5;
 
+/** Village framing — the area both fitCamera() and the auto overview frame.
+ * Shared so the manual fit and the auto overview can never drift apart. */
+const VILLAGE_FIT_WIDTH = 1100;
+const VILLAGE_FIT_HEIGHT = 700;
+const VILLAGE_FIT_MARGIN = 0.85;
+
 /** Auto-camera framing config — how it frames the village and active agents. */
 const AUTO_CAMERA_CONFIG: AutoCameraConfig = {
   worldWidth: WORLD_WIDTH,
   worldHeight: WORLD_HEIGHT,
-  villageWidth: 1100,
-  villageHeight: 700,
+  villageWidth: VILLAGE_FIT_WIDTH,
+  villageHeight: VILLAGE_FIT_HEIGHT,
   villageCenterX: WORLD_WIDTH / 2,
   villageCenterY: WORLD_HEIGHT / 2,
-  overviewMargin: 0.85,
+  overviewMargin: VILLAGE_FIT_MARGIN,
   groupMargin: 0.8,
   focusZoom: 1.15,
   maxZoom: MAX_ZOOM,
@@ -83,6 +89,9 @@ export class VillageScene extends Phaser.Scene {
   /** Named so it can be removed in cleanup (the scene has several anonymous
    * 'update' listeners that can't be individually detached). */
   private onAutoCameraUpdate: ((time: number) => void) | null = null;
+  /** Named resize handler so cleanup can detach it — otherwise a stale closure
+   * survives scene restart and touches a destroyed camera on the next resize. */
+  private onResize: ((gameSize: Phaser.Structs.Size) => void) | null = null;
 
   /** Tracks which hero IDs are at each building, in arrival order. */
   private buildingSlots = new Map<string, string[]>();
@@ -179,13 +188,15 @@ export class VillageScene extends Phaser.Scene {
     // Re-fit when the browser/window resizes. While the auto camera is on it
     // owns framing, so only re-fit/center manually when it's off — otherwise a
     // resize would yank an active focus back to overview.
-    this.scale.on('resize', (gameSize: Phaser.Structs.Size) => {
+    this.onResize = (gameSize: Phaser.Structs.Size) => {
+      try { if (!this.sys.isActive()) return; } catch { return; }
       this.cameras.main.setViewport(0, 0, gameSize.width, gameSize.height);
       if (this.autoCam?.enabled !== true) {
         this.fitCamera();
         this.cameras.main.centerToBounds();
       }
-    });
+    };
+    this.scale.on('resize', this.onResize);
 
     // Drag to pan (mouse + touch, with threshold to avoid interfering with building clicks)
     let dragStartX = 0;
@@ -468,6 +479,10 @@ export class VillageScene extends Phaser.Scene {
         this.events.off('update', this.onAutoCameraUpdate);
         this.onAutoCameraUpdate = null;
       }
+      if (this.onResize !== null) {
+        this.scale.off('resize', this.onResize);
+        this.onResize = null;
+      }
       this.autoCam?.destroy();
       this.autoCam = null;
       this.lightningTimer?.remove();
@@ -587,14 +602,14 @@ export class VillageScene extends Phaser.Scene {
     }
   }
 
-  /** Calculate zoom so the village area (~1100×700 centred at 1400,780) fills the viewport. */
+  /** Calculate zoom so the village area fills the viewport. Uses the same
+   * framing constants as the auto overview (AUTO_CAMERA_CONFIG) so the two
+   * stay in lockstep. */
   private fitCamera(): void {
     const cam = this.cameras.main;
-    const villageW = 1100;
-    const villageH = 700;
-    const zoomX = cam.width / villageW;
-    const zoomY = cam.height / villageH;
-    cam.setZoom(Phaser.Math.Clamp(Math.min(zoomX, zoomY) * 0.85, this.minZoom(), 1.5));
+    const zoomX = cam.width / VILLAGE_FIT_WIDTH;
+    const zoomY = cam.height / VILLAGE_FIT_HEIGHT;
+    cam.setZoom(Phaser.Math.Clamp(Math.min(zoomX, zoomY) * VILLAGE_FIT_MARGIN, this.minZoom(), MAX_ZOOM));
   }
 
   /** Lower zoom bound: the larger of the two viewport/world ratios, so the
