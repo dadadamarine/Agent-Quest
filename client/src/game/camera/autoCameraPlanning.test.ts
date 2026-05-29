@@ -90,6 +90,18 @@ describe('computeCameraGoal', () => {
     expect(goal.zoom).toBe(2.0);
   });
 
+  it('keeps a finite zoom when the configured village footprint is degenerate', () => {
+    const goal = computeCameraGoal('overview', [], viewport, {
+      ...config,
+      villageWidth: 0,
+      villageHeight: 0,
+    });
+    expect(goal.centerX).toBe(1400);
+    expect(goal.centerY).toBe(900);
+    expect(goal.zoom).toBe(1.5);
+    expect(Number.isFinite(goal.zoom)).toBe(true);
+  });
+
   it('falls back to overview when focus mode has no targets', () => {
     const goal = computeCameraGoal('focus', [], viewport, config);
     expect(goal.mode).toBe('overview');

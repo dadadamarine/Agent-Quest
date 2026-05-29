@@ -54,7 +54,13 @@ function makeCamera(): ControllableCamera & { writes: number } {
       this.writes++;
     },
     setZoom(z: number) {
+      // Phaser changes zoom without preserving the world-space midpoint; scroll
+      // stays fixed until centerOn/pan writes it again.
+      const scrollX = this._cx - this.width / this.zoom / 2;
+      const scrollY = this._cy - this.height / this.zoom / 2;
       this.zoom = z;
+      this._cx = scrollX + this.width / this.zoom / 2;
+      this._cy = scrollY + this.height / this.zoom / 2;
       this.writes++;
     },
   };
@@ -121,6 +127,18 @@ describe('AutoCameraController', () => {
     // Zoom moved toward the goal but by at most maxZoomDeltaPerFrame per call.
     expect(cam.zoom).toBeGreaterThan(0.5);
     expect(cam.zoom).toBeLessThanOrEqual(0.5 + 0.05 * 10 + 1e-9);
+  });
+
+  it('does not pan when only zoom needs to move toward the same center', () => {
+    const cam = makeCamera(); // already centered on the village
+    const controller = new AutoCameraController(cam, makeOptions(true));
+
+    controller.setActiveTargets([]);
+    controller.update(100);
+
+    expect(cam.midPoint.x).toBe(1400);
+    expect(cam.midPoint.y).toBe(900);
+    expect(cam.zoom).toBeLessThan(1);
   });
 
   describe('village framing keeps the camera steady (issue #52)', () => {

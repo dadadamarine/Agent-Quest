@@ -47,6 +47,8 @@ export interface CameraGoal {
   readonly zoom: number;
 }
 
+const MIN_FRAME_SPAN = 1;
+
 /** Clamp a center coordinate to a range. When the world is smaller than the
  * viewport (lo > hi), fall back to the midpoint (world center). */
 function clampCenterCoord(value: number, lo: number, hi: number): number {
@@ -144,8 +146,8 @@ function frameVillageWithTargets(
     if (target.y > maxY) maxY = target.y;
   }
 
-  const spanX = maxX - minX;
-  const spanY = maxY - minY;
+  const spanX = Math.max(maxX - minX, MIN_FRAME_SPAN);
+  const spanY = Math.max(maxY - minY, MIN_FRAME_SPAN);
   const zoom = clampZoom(
     Math.min(viewport.width / spanX, viewport.height / spanY) * config.overviewMargin,
     minZoom,

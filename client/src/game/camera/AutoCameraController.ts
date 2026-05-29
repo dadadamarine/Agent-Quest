@@ -96,9 +96,13 @@ export class AutoCameraController {
     const viewport = { width: this.camera.width, height: this.camera.height };
     const goal = computeCameraGoal(step.mode, this.targets, viewport, this.options.config);
 
+    const currentCenter = this.camera.midPoint;
+    const { x, y } = this.nextCenter(goal.centerX, goal.centerY, currentCenter);
+
     // Zoom first, then center — centerOn computes scroll against the new zoom.
+    // The next center is calculated from the pre-zoom midpoint so zoom-only
+    // changes do not inject artificial pan into the center lerp.
     this.camera.setZoom(this.nextZoom(goal.zoom));
-    const { x, y } = this.nextCenter(goal.centerX, goal.centerY);
     this.camera.centerOn(x, y);
   }
 
@@ -113,8 +117,11 @@ export class AutoCameraController {
     return next;
   }
 
-  private nextCenter(goalX: number, goalY: number): { x: number; y: number } {
-    const from = this.camera.midPoint;
+  private nextCenter(
+    goalX: number,
+    goalY: number,
+    from: { readonly x: number; readonly y: number },
+  ): { x: number; y: number } {
     if (Math.hypot(goalX - from.x, goalY - from.y) <= this.options.centerEpsilon) {
       return { x: goalX, y: goalY };
     }
