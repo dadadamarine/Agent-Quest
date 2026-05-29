@@ -185,6 +185,15 @@ export function TopBar({
             >
               {'\u{1F3A5}'}
             </button>
+            <button
+              type="button"
+              className="topbar-effect-btn"
+              onClick={() => eventBridge.emit('camera:fit')}
+              aria-label="Fit view"
+              title="Zoom to fit — show whole village"
+            >
+              {'\u{1F50D}'}
+            </button>
             <a
               className="topbar-effect-btn"
               data-mobile-hide="true"

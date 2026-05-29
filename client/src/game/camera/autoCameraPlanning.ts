@@ -153,3 +153,46 @@ export function computeCameraGoal(
   );
   return { mode: 'overview', centerX, centerY, zoom };
 }
+
+/**
+ * Frame the whole village plus every hero so a single "fit to view" action
+ * always shows the map and all characters at once. The village rectangle is
+ * always part of the bounding box, so the framing stays stable even when every
+ * hero is clustered together (or there are none) — heroes can only widen the
+ * box, never shrink it below the village footprint. Pure — unit-testable.
+ *
+ * Reuses the same clamp/margin helpers as the auto-camera overview so the
+ * manual fit and the automatic framing never drift apart. Returns the
+ * `'overview'` mode since a fit is a village-framing goal; callers only consume
+ * `centerX`/`centerY`/`zoom` (the mode is informational, not an auto-camera state).
+ */
+export function computeFitGoal(
+  heroTargets: readonly CameraTarget[],
+  viewport: Viewport,
+  config: AutoCameraConfig,
+): CameraGoal {
+  const minZoom = minZoomFor(viewport, config);
+  const halfWidth = config.villageWidth / 2;
+  const halfHeight = config.villageHeight / 2;
+
+  let minX = config.villageCenterX - halfWidth;
+  let maxX = config.villageCenterX + halfWidth;
+  let minY = config.villageCenterY - halfHeight;
+  let maxY = config.villageCenterY + halfHeight;
+  for (const target of heroTargets) {
+    if (target.x < minX) minX = target.x;
+    if (target.x > maxX) maxX = target.x;
+    if (target.y < minY) minY = target.y;
+    if (target.y > maxY) maxY = target.y;
+  }
+
+  const spanX = maxX - minX;
+  const spanY = maxY - minY;
+  const zoom = clampZoom(
+    Math.min(viewport.width / spanX, viewport.height / spanY) * config.overviewMargin,
+    minZoom,
+    config.maxZoom,
+  );
+  const { centerX, centerY } = clampCenter((minX + maxX) / 2, (minY + maxY) / 2, zoom, viewport, config);
+  return { mode: 'overview', centerX, centerY, zoom };
+}

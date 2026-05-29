@@ -15,7 +15,8 @@ import { SERVER_URL as API_BASE } from '../../config';
 import { getActiveTheme, rebaseSavedScale } from '../themes/registry';
 import { computeShowSourceBadge, computePartyOrder } from '../../presentation/agentPresentation';
 import { AutoCameraController } from '../camera/AutoCameraController';
-import type { AutoCameraConfig } from '../camera/autoCameraPlanning';
+import { computeFitGoal } from '../camera/autoCameraPlanning';
+import type { AutoCameraConfig, CameraTarget } from '../camera/autoCameraPlanning';
 import type { AutoCameraTiming } from '../camera/autoCameraState';
 import { readAutoCameraPreference } from '../camera/autoCameraPref';
 
@@ -80,6 +81,7 @@ export class VillageScene extends Phaser.Scene {
   private heroes = new Map<string, HeroSprite>();
   private onAgentsUpdated: ((agents: unknown) => void) | null = null;
   private onCameraFollow: ((agentId: unknown) => void) | null = null;
+  private onCameraFit: (() => void) | null = null;
   private onSelectionChanged: ((agentId: unknown) => void) | null = null;
   private onBackgroundPointerDown: ((pointer: Phaser.Input.Pointer, hits: Phaser.GameObjects.GameObject[]) => void) | null = null;
 
@@ -415,6 +417,27 @@ export class VillageScene extends Phaser.Scene {
     };
     eventBridge.on('camera:follow', this.onCameraFollow);
 
+    // One-shot "fit view" (TopBar button): frame the whole village plus every
+    // hero in a single smooth pan + zoom. Like camera:follow it is a manual
+    // intent, so it pauses the auto camera rather than fighting its update.
+    this.onCameraFit = () => {
+      try { if (!this.sys.isActive()) return; } catch { return; }
+      this.autoCam?.notifyManualInteraction(this.time.now);
+      const cam = this.cameras.main;
+      const heroTargets: CameraTarget[] = [];
+      for (const hero of this.heroes.values()) {
+        heroTargets.push({ x: hero.x, y: hero.y });
+      }
+      const goal = computeFitGoal(heroTargets, { width: cam.width, height: cam.height }, AUTO_CAMERA_CONFIG);
+      // force=true so a fit always wins: it overrides an in-flight pan/zoom
+      // (e.g. an Activity Feed camera:follow tween, or a rapid second click).
+      // Without it Phaser ignores the request while another effect runs,
+      // breaking the "one click = one reframe" contract.
+      cam.pan(goal.centerX, goal.centerY, 500, 'Sine.easeInOut', true);
+      cam.zoomTo(goal.zoom, 500, 'Sine.easeInOut', true);
+    };
+    eventBridge.on('camera:fit', this.onCameraFit);
+
     // Toggle the auto camera on/off (TopBar). Persistence is owned by TopBar;
     // the scene only applies the enabled flag. When turned off, the camera is
     // left wherever it is so the user keeps their current view.
@@ -462,6 +485,10 @@ export class VillageScene extends Phaser.Scene {
       if (this.onCameraFollow !== null) {
         eventBridge.off('camera:follow', this.onCameraFollow);
         this.onCameraFollow = null;
+      }
+      if (this.onCameraFit !== null) {
+        eventBridge.off('camera:fit', this.onCameraFit);
+        this.onCameraFit = null;
       }
       if (this.onSelectionChanged !== null) {
         eventBridge.off('selection:changed', this.onSelectionChanged);

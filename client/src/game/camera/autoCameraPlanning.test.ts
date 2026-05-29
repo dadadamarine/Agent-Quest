@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'bun:test';
-import { computeCameraGoal, type AutoCameraConfig, type Viewport } from './autoCameraPlanning';
+import {
+  computeCameraGoal,
+  computeFitGoal,
+  type AutoCameraConfig,
+  type CameraTarget,
+  type Viewport,
+} from './autoCameraPlanning';
 
 const config: AutoCameraConfig = {
   worldWidth: 2800,
@@ -96,6 +102,75 @@ describe('computeCameraGoal', () => {
 
   it('falls back to overview when group mode has fewer than two targets', () => {
     const goal = computeCameraGoal('group', [{ x: 1000, y: 600 }], viewport, config);
+    expect(goal.mode).toBe('overview');
+  });
+});
+
+describe('computeFitGoal', () => {
+  // Village rectangle: center (1400, 900), half (550, 350) → corners (850,550)–(1950,1250).
+
+  it('frames the village exactly like the overview when there are no heroes', () => {
+    const goal = computeFitGoal([], viewport, config);
+    expect(goal.centerX).toBe(1400);
+    expect(goal.centerY).toBe(900);
+    // Same fit math as the overview: min(1280/1100, 800/700) * 0.85 ≈ 0.971.
+    expect(goal.zoom).toBeCloseTo(0.971, 2);
+    // Identical to the auto-camera overview so the two never drift apart.
+    const overview = computeCameraGoal('overview', [], viewport, config);
+    expect(goal.zoom).toBeCloseTo(overview.zoom, 5);
+    expect(goal.centerX).toBe(overview.centerX);
+    expect(goal.centerY).toBe(overview.centerY);
+  });
+
+  it('keeps the village framing when every hero is already inside the village', () => {
+    const insideHeroes: CameraTarget[] = [
+      { x: 1000, y: 700 },
+      { x: 1600, y: 1000 },
+    ];
+    const goal = computeFitGoal(insideHeroes, viewport, config);
+    // Heroes are within the village rect, so the bounding box is unchanged.
+    expect(goal.centerX).toBe(1400);
+    expect(goal.centerY).toBe(900);
+    expect(goal.zoom).toBeCloseTo(0.971, 2);
+  });
+
+  it('widens the bounding box and zooms out when heroes are outside the village', () => {
+    // Heroes far left/right of the village push minX/maxX past the rect corners.
+    const goal = computeFitGoal([{ x: 300, y: 900 }, { x: 2500, y: 900 }], viewport, config);
+    // bbox X: 300–2500 (span 2200), Y: 550–1250 (village rect, span 700).
+    expect(goal.centerX).toBe(1400);
+    expect(goal.centerY).toBe(900);
+    // min(1280/2200, 800/700) * 0.85 = 0.581818 * 0.85 ≈ 0.4945.
+    expect(goal.zoom).toBeCloseTo(0.4945, 3);
+  });
+
+  it('clamps the center to world bounds when a lone hero sits near a corner', () => {
+    const goal = computeFitGoal([{ x: 2700, y: 1600 }], viewport, config);
+    // bbox X: 850–2700 (span 1850), Y: 550–1600 (span 1050).
+    // zoom = min(1280/1850, 800/1050) * 0.85 = 0.691892 * 0.85 ≈ 0.5881.
+    expect(goal.zoom).toBeCloseTo(0.5881, 3);
+    // Raw center (1775, 1075); centerX clamps so the viewport stays inside the world.
+    const halfViewW = viewport.width / (2 * goal.zoom);
+    expect(goal.centerX).toBeCloseTo(config.worldWidth - halfViewW, 1);
+    expect(goal.centerY).toBeCloseTo(1075, 1);
+  });
+
+  it('clamps zoom to maxZoom for a large viewport', () => {
+    const bigView: Viewport = { width: 3000, height: 2000 };
+    const goal = computeFitGoal([], bigView, config);
+    // Raw fit would exceed maxZoom; it must clamp to 1.5.
+    expect(goal.zoom).toBe(1.5);
+  });
+
+  it('clamps zoom to minZoom when heroes span the whole world', () => {
+    const goal = computeFitGoal([{ x: 0, y: 0 }, { x: 2800, y: 1800 }], viewport, config);
+    // bbox spans the world; raw fit drops below minZoom and must clamp up.
+    const minZoom = Math.max(viewport.width / config.worldWidth, viewport.height / config.worldHeight);
+    expect(goal.zoom).toBeCloseTo(minZoom, 5);
+  });
+
+  it('reports overview mode so the scene treats it as a framing goal', () => {
+    const goal = computeFitGoal([{ x: 1000, y: 700 }], viewport, config);
     expect(goal.mode).toBe('overview');
   });
 });
