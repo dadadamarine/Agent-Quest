@@ -54,6 +54,11 @@ export class AutoCameraController {
   private readonly options: AutoCameraControllerOptions;
   private state: AutoCameraState;
   private targets: readonly CameraTarget[] = [];
+  /** Snapshot of the most recent non-empty target positions. Holds the framing
+   * through a brief idle: while the timing machine still keeps a focus/group
+   * mode after the heroes go quiet, the goal frames where they were instead of
+   * snapping to the overview before idleOverviewMs elapses (ETC-50). */
+  private lastFramedTargets: readonly CameraTarget[] = [];
 
   constructor(camera: ControllableCamera, options: AutoCameraControllerOptions) {
     this.camera = camera;
@@ -93,8 +98,21 @@ export class AutoCameraController {
     this.state = step.state;
     if (step.paused) return;
 
+    // Hold the last framing through a brief idle: while the timing machine still
+    // keeps a focus/group mode (within idleOverviewMs of the last active hero),
+    // frame a snapshot of where those heroes were, so a short lull doesn't snap
+    // to the overview before the idle timeout. Once the machine commits
+    // 'overview', release to the village-only frame. The snapshot (not the live
+    // refs) keeps a stable target even if those sprites are later removed.
+    let framingTargets: readonly CameraTarget[] = this.targets;
+    if (this.targets.length > 0) {
+      this.lastFramedTargets = this.targets.map((target) => ({ x: target.x, y: target.y }));
+    } else if (step.mode !== 'overview') {
+      framingTargets = this.lastFramedTargets;
+    }
+
     const viewport = { width: this.camera.width, height: this.camera.height };
-    const goal = computeCameraGoal(step.mode, this.targets, viewport, this.options.config);
+    const goal = computeCameraGoal(step.mode, framingTargets, viewport, this.options.config);
 
     const currentCenter = this.camera.midPoint;
     const { x, y } = this.nextCenter(goal.centerX, goal.centerY, currentCenter);
@@ -134,5 +152,6 @@ export class AutoCameraController {
 
   destroy(): void {
     this.targets = [];
+    this.lastFramedTargets = [];
   }
 }
