@@ -109,10 +109,15 @@ describe('computeCameraGoal', () => {
     expect(goal.zoom).toBeCloseTo(0.971, 2);
   });
 
-  it('falls back to overview when group mode has fewer than two targets', () => {
-    const goal = computeCameraGoal('group', [{ x: 1000, y: 600 }], viewport, config);
-    expect(goal.mode).toBe('overview');
-    expect(goal.centerX).toBe(1400);
+  it('frames a lone target in group mode just like focus (no overview blink on a 2→1 transition)', () => {
+    // A single target during a group→focus transition still frames that target,
+    // matching focus geometry, so the camera does not blink to the overview.
+    const groupGoal = computeCameraGoal('group', [{ x: 1000, y: 600 }], viewport, config);
+    const focusGoal = computeCameraGoal('focus', [{ x: 1000, y: 600 }], viewport, config);
+    expect(groupGoal.mode).toBe('group');
+    expect(groupGoal.centerX).toBe(focusGoal.centerX);
+    expect(groupGoal.centerY).toBe(focusGoal.centerY);
+    expect(groupGoal.zoom).toBe(focusGoal.zoom);
   });
 
   it('zooms out monotonically as a hero walks farther past the village edge', () => {

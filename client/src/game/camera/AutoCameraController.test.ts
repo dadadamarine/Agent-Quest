@@ -181,4 +181,39 @@ describe('AutoCameraController', () => {
       expect(maxStep).toBeLessThan(120); // no single-frame jump (lerp-bounded)
     });
   });
+
+  describe('holds the framing through a brief idle (ETC-50)', () => {
+    it('keeps framing the last-active hero while idle, before idleOverviewMs elapses', () => {
+      const cam = makeCamera();
+      const controller = new AutoCameraController(cam, makeOptions(true));
+      // A hero far outside the village makes the focus frame clearly distinct
+      // from the village-only overview (wider box, lower zoom, shifted center).
+      const hero = { x: 2700, y: 1600 };
+      controller.setActiveTargets([hero]);
+      for (let t = 0; t <= 20_000; t += 100) controller.update(t); // converge to focus
+      const focusZoom = cam.zoom;
+      const focusX = cam.midPoint.x;
+      // Hero goes idle: the scene clears active targets. The timing machine keeps
+      // the focus mode until idleOverviewMs (8000) elapses since the last active
+      // tick (20000), so the camera should hold the framing, not drift to overview.
+      controller.setActiveTargets([]);
+      for (let t = 20_100; t <= 25_000; t += 100) controller.update(t); // 5s idle < 8s
+      expect(Math.abs(cam.zoom - focusZoom)).toBeLessThan(0.02);
+      expect(Math.abs(cam.midPoint.x - focusX)).toBeLessThan(30);
+    });
+
+    it('releases to the overview once idleOverviewMs has elapsed', () => {
+      const cam = makeCamera();
+      const controller = new AutoCameraController(cam, makeOptions(true));
+      const hero = { x: 2700, y: 1600 };
+      controller.setActiveTargets([hero]);
+      for (let t = 0; t <= 20_000; t += 100) controller.update(t);
+      const focusZoom = cam.zoom;
+      // Idle long past idleOverviewMs (8000) after last active (20000): the mode
+      // commits overview and the camera zooms in to the village-only frame.
+      controller.setActiveTargets([]);
+      for (let t = 20_100; t <= 40_000; t += 100) controller.update(t);
+      expect(cam.zoom).toBeGreaterThan(focusZoom);
+    });
+  });
 });

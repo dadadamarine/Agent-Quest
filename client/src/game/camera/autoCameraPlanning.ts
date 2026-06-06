@@ -94,9 +94,10 @@ function clampCenter(
  *
  * The mode is decided upstream (by the timing state machine) so the goal stays
  * stable across debounce/idle transitions; this function just realises that
- * mode against the current target positions. When a mode and the targets
- * disagree (e.g. `focus` mode mid-transition with zero targets), it falls back
- * to the overview so the camera always has a sensible place to be.
+ * mode against the current target positions. Any non-overview mode with at
+ * least one target frames the village together with those targets; an empty
+ * target set, or the overview mode, falls back to framing the village alone so
+ * the camera always has a sensible place to be.
  */
 export function computeCameraGoal(
   mode: AutoCameraMode,
@@ -107,14 +108,12 @@ export function computeCameraGoal(
   // focus/group both frame the village plus their active targets — the village
   // is always in view, and characters widen the box when they roam past it. The
   // geometry is identical; only the mode label differs (the timing state machine
-  // and camera:fit still distinguish them). focus/group with too few targets, or
-  // overview, fall back to framing the village alone.
-  const framed = frameVillageWithTargets(targets, viewport, config);
-  if (mode === 'focus' && targets.length >= 1) {
-    return { mode: 'focus', ...framed };
-  }
-  if (mode === 'group' && targets.length >= 2) {
-    return { mode: 'group', ...framed };
+  // and camera:fit still distinguish them). A single target is enough to frame:
+  // a lone group target frames just like focus, so the camera doesn't blink to
+  // the overview during a 2→1 transition. Only a truly empty target set, or the
+  // overview mode, falls back to framing the village alone.
+  if (mode !== 'overview' && targets.length >= 1) {
+    return { mode, ...frameVillageWithTargets(targets, viewport, config) };
   }
   return { mode: 'overview', ...frameVillageWithTargets([], viewport, config) };
 }
