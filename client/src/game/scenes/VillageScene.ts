@@ -74,15 +74,27 @@ const AUTO_CAMERA_CONFIG: AutoCameraConfig = {
   maxZoom: MAX_ZOOM,
 };
 
-/** Auto-camera timing — debounce/idle/manual-pause windows (issue #38). */
+/** Auto-camera timing — debounce/idle/manual-pause windows. Tuned wide so the
+ * auto camera stays calm: it reframes only on sustained changes, not on every
+ * brief flicker of the active set. */
 const AUTO_CAMERA_TIMING: AutoCameraTiming = {
-  manualResumeMs: 5000,
-  idleOverviewMs: 8000,
-  focusDebounceMs: 800,
+  // Keep the view under the user's control well after a manual pan/zoom, so the
+  // auto camera doesn't snatch it back a moment later.
+  manualResumeMs: 8000,
+  // Hold the current framing through short idle gaps; zoom out to the overview
+  // only after a sustained lull, so a brief pause doesn't trigger a
+  // zoom-out/zoom-in round trip.
+  idleOverviewMs: 20000,
+  // Require a desired mode to hold longer before committing, so a flickering
+  // active set (heroes toggling active/idle) doesn't whip the camera between
+  // framings.
+  focusDebounceMs: 2000,
 };
 
-/** Per-frame smoothing for the auto camera — gentle to avoid motion sickness. */
-const AUTO_CAMERA_LERP = 0.08;
+/** Per-frame smoothing for the auto camera — small so framing changes ease in
+ * gently instead of snapping, keeping the view calm when the active set or hero
+ * positions shift. */
+const AUTO_CAMERA_LERP = 0.05;
 /** Camera follow smoothing for the selected hero (issue #44). */
 const FOLLOW_LERP = 0.1;
 const AUTO_CAMERA_MAX_ZOOM_DELTA = 0.02;
